@@ -1,11 +1,11 @@
-# NapCat-MCP: Full-Featured QQ Bot Control & OneBot 11 Model Context Protocol (MCP) Server
+# OmniQQ-MCP: Full-Featured QQ Bot Control & OneBot 11 Model Context Protocol (MCP) Server
 
 [![MCP Compatible](https://img.shields.io/badge/MCP-Model%20Context%20Protocol-blue)](https://modelcontextprotocol.io)
 [![NapCatQQ](https://img.shields.io/badge/NapCatQQ-OneBot%2011-00BFFF)](https://github.com/NapNeko/NapCatQQ)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-green)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-**NapCat-MCP (`napcat-mcp`)** 是一个基于 [NapNeko/NapCatQQ](https://github.com/NapNeko/NapCatQQ) 与 **OneBot 11 协议**打造的**全功能、自运维、零业务耦合的通用 QQ 控制与感知 MCP (Model Context Protocol) Server**。
+**OmniQQ-MCP (`omniqq-mcp`)** 是一个基于 [NapNeko/NapCatQQ](https://github.com/NapNeko/NapCatQQ) 与 **OneBot 11 协议**打造的**全功能、自运维、零业务耦合的通用 QQ 控制与感知 MCP (Model Context Protocol) Server**。
 
 通过本工具，你可以让 **Claude Desktop、Google Antigravity、Cursor、Windsurf、Cline、OpenAI Agents** 等任意支持 MCP 的 AI 智能体直接获得**操控 QQ 的双手与实时感知的眼睛**——涵盖私聊/群聊收发、合并转发、群管禁言踢人、群文件上传下载、图片 OCR、好友与资料管理、**二维码扫码登录、多 QQ 账号热切换**，以及 **一键环境自检与自动部署更新**。
 
@@ -13,7 +13,7 @@
 
 ## 🔍 核心检索关键词 (Keywords / Topics)
 
-`mcp` `model-context-protocol` `mcp-server` `qq-bot` `napcat` `napcatqq` `onebot` `onebot11` `ntqq` `ai-agent` `qq-mcp` `claude-desktop` `cursor-mcp` `antigravity` `chatbot` `python-mcp`
+`omniqq` `omniqq-mcp` `mcp` `model-context-protocol` `mcp-server` `qq-bot` `napcat` `napcatqq` `onebot` `onebot11` `ntqq` `ai-agent` `qq-mcp` `claude-desktop` `cursor-mcp` `antigravity` `chatbot` `python-mcp`
 
 ---
 
@@ -71,7 +71,7 @@ pip install aiohttp websockets psutil
 ```json
 {
   "mcpServers": {
-    "napcat-mcp": {
+    "omniqq-mcp": {
       "command": "python",
       "args": [
         "-u",

@@ -39,7 +39,7 @@ class TestNapCatMCP(unittest.IsolatedAsyncioTestCase):
         }
         resp = await self.server.handle_request(init_req)
         self.assertEqual(resp["id"], 1)
-        self.assertEqual(resp["result"]["serverInfo"]["name"], "napcat-mcp")
+        self.assertEqual(resp["result"]["serverInfo"]["name"], "omniqq-mcp")
         self.assertIn("tools", resp["result"]["capabilities"])
 
         # Notification 不应返回响应
@@ -240,7 +240,7 @@ class TestNapCatMCP(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(out_line)
             resp = json.loads(out_line)
             self.assertEqual(resp["id"], 10)
-            self.assertEqual(resp["result"]["serverInfo"]["name"], "napcat-mcp")
+            self.assertEqual(resp["result"]["serverInfo"]["name"], "omniqq-mcp")
         finally:
             proc.terminate()
             proc.wait(timeout=5)

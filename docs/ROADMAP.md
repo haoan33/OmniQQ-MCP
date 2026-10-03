@@ -1,6 +1,6 @@
-# 🗺️ NapCat-MCP 架构演进与下一步更新路线图 (Roadmap)
+# 🗺️ OmniQQ-MCP 架构演进与下一步更新路线图 (Roadmap)
 
-本文档详细阐述 **NapCat-MCP** 在完成第一阶段（74 项全量控制工具 + 万能透传 + 二维码登录与多账号热切换 + 环境自运维）后的下一步核心功能规划：**实时消息监听、多级智能筛选与自动唤醒 AI 应答闭环引擎 (Smart Message Watcher & Agent Auto-Reply Pipeline)**。
+本文档详细阐述 **OmniQQ-MCP** 在完成第一阶段（74 项全量控制工具 + 万能透传 + 二维码登录与多账号热切换 + 环境自运维）后的下一步核心功能规划：**实时消息监听、多级智能筛选与自动唤醒 AI 应答闭环引擎 (Smart Message Watcher & Agent Auto-Reply Pipeline)**。
 
 ---
 
@@ -8,7 +8,7 @@
 
 在传统的 QQ Bot 开发中，通信、业务逻辑与 AI 提示词往往紧密揉杂在一起，导致改动规则需要频繁重启整个服务。
 
-NapCat-MCP 坚决贯彻 **“机制与策略分离” (Separation of Mechanism & Policy)**：
+OmniQQ-MCP 坚决贯彻 **“机制与策略分离” (Separation of Mechanism & Policy)**：
 * **MCP Server（机制层，已发布 v1.0）**：专注于提供标准、纯净、高可用的 QQ 控制武器库（发消息、传文件、踢人、改名片、查历史、扫码登录）；
 * **Auto-Reply Pipeline（策略层，v1.1 ~ v1.2 规划）**：以伴生守候器（Sidecar / Event Watcher）的形式运行，负责实时收信、多级过滤与唤醒 AI。
 

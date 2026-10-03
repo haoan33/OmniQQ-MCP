@@ -36,7 +36,7 @@ class NapCatMCPServer:
     def __init__(self, client: Optional[NapCatClient] = None):
         self.client = client or NapCatClient()
         self.server_info = {
-            "name": "napcat-mcp",
+            "name": "omniqq-mcp",
             "version": __version__
         }
 
@@ -64,9 +64,9 @@ class NapCatMCPServer:
                     },
                     "serverInfo": self.server_info,
                     "instructions": (
-                        "NapCatQQ (OneBot 11) 全功能控制与感知 MCP 服务。"
+                        "OmniQQ-MCP (NapCat OneBot 11) 全功能控制与感知 MCP 服务。"
                         "支持发送私聊/群聊消息、合并转发、撤回、群管控制、群文件上传下载、OCR、"
-                        "好友与资料管理、实时消息读取以及 144+ 原生接口透传。"
+                        "好友与资料管理、二维码扫码登录、多账号热切换、实时消息读取以及 144+ 原生接口透传。"
                         "若连接失败，请先调用 check_napcat_environment 诊断环境。"
                     )
                 }
@@ -128,8 +128,8 @@ class NapCatMCPServer:
                 return self._ok_response(msg_id, {
                     "prompts": [
                         {
-                            "name": "napcat_control_guide",
-                            "description": "获取使用 NapCat MCP 控制 QQ 的最佳实践指南与常用工作流",
+                            "name": "omniqq_control_guide",
+                            "description": "获取使用 OmniQQ-MCP 控制 QQ 的最佳实践指南与常用工作流",
                             "arguments": []
                         }
                     ]
@@ -137,20 +137,21 @@ class NapCatMCPServer:
 
             elif method == "prompts/get":
                 pname = params.get("name", "")
-                if pname == "napcat_control_guide":
+                if pname in ("omniqq_control_guide", "napcat_control_guide"):
                     return self._ok_response(msg_id, {
-                        "description": "NapCat QQ 控制指南",
+                        "description": "OmniQQ-MCP 控制指南",
                         "messages": [
                             {
                                 "role": "user",
                                 "content": {
                                     "type": "text",
                                     "text": (
-                                        "请使用 napcat-mcp 工具控制 QQ：\n"
+                                        "请使用 omniqq-mcp / napcat-mcp 工具控制 QQ：\n"
                                         "1. 首选调用 `check_napcat_environment` 或 `get_login_info` 确认连接状态；\n"
                                         "2. 若环境未安装，询问用户许可后调用 `deploy_or_update_napcat(confirmed=True)`；\n"
-                                        "3. 查看新消息使用 `get_recent_messages`，查历史使用 `get_friend_msg_history` / `get_group_msg_history`；\n"
-                                        "4. 任何未单独列出的扩展接口均可通过 `call_napcat_api` 直接调用。"
+                                        "3. 支持 `login_new_qq_by_qrcode` 扫码登录新账号，或 `switch_qq_account` 免扫码热切换已保存账号；\n"
+                                        "4. 查看新消息使用 `get_recent_messages`，查历史使用 `get_friend_msg_history` / `get_group_msg_history`；\n"
+                                        "5. 任何未单独列出的扩展接口均可通过 `call_napcat_api` 直接调用。"
                                     )
                                 }
                             }

@@ -61,7 +61,7 @@ async def fetch_github_latest_release() -> dict[str, Any]:
     """查询 NapNeko/NapCatQQ 官方 GitHub 最新 Release 信息"""
     headers = {
         "Accept": "application/vnd.github+json",
-        "User-Agent": "NapCat-MCP-Server/1.0"
+        "User-Agent": "OmniQQ-MCP-Server/1.0"
     }
     try:
         async with aiohttp.ClientSession() as session:
