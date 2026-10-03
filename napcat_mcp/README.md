@@ -96,6 +96,30 @@ pip install aiohttp websockets psutil
 
 ---
 
+## 🗺️ 后续迭代路线图 (Roadmap)
+
+NapCat-MCP 秉持 **“机制与策略彻底解耦”** 的架构设计理念：底层 MCP Server 保持纯净稳定的控制工具库，上层通过独立的事件流机制实现智能化消息应答。下一步迭代规划如下：
+
+### 1. 阶段一：实时消息智能监听与多维筛选引擎 (v1.1)
+- **多维规则过滤器 (Filter Pipeline)**：
+  - 支持指定私聊/群聊白名单与黑名单，避免无差别响应；
+  - 精准识别 `@当前机器人`、`@全体成员` 以及自定义关键词/正则规则触发；
+  - 自动捕获群文件上传、好友申请、入群请求等通知事件。
+- **连发防抖与多模态消息聚合器 (Debounce Window)**：
+  - 设定 10~30 秒防抖保护窗口，自动将同一用户的连续多条短文本、表情包、图片与文件附件聚合为一个完整的结构化上下文，彻底杜绝碎片化 Token 浪费。
+
+### 2. 阶段二：Agent 自动调度与闭环应答 (v1.2)
+- **双向 Agent 驱动调度器 (Agent Dispatcher)**：
+  - 支持通过 Antigravity CLI、标准 Webhook 或 OpenAI/Anthropic 兼容接口自动唤醒 AI 智能体；
+  - AI 接收结构化上下文进行推理决策，随后直接调用本 MCP Server 的 `send_private_msg` / `send_group_msg` 原生工具完成闭环自动回复。
+- **人机协同安全门禁 (Human-in-the-Loop)**：
+  - 针对大群等敏感场景，支持“AI 拟定回复草案 -> 推送管理员手机审批 -> 确认后代发”，兼具全自动与高安全。
+
+> 详见完整技术方案：[docs/ROADMAP.md](./docs/ROADMAP.md)
+
+---
+
 ## 📄 开源协议 (License)
 
 本项目基于 [MIT License](./LICENSE) 开源。
+
