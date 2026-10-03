@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.log
+.env
+napcat_runtime/
+current_account.txt
+qrcode.png
+dist/
+build/
+*.egg-info/
