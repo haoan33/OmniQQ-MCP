@@ -137,7 +137,7 @@ class NapCatMCPServer:
 
             elif method == "prompts/get":
                 pname = params.get("name", "")
-                if pname in ("omniqq_control_guide", "napcat_control_guide"):
+                if pname == "omniqq_control_guide":
                     return self._ok_response(msg_id, {
                         "description": "OmniQQ-MCP 控制指南",
                         "messages": [
@@ -146,7 +146,7 @@ class NapCatMCPServer:
                                 "content": {
                                     "type": "text",
                                     "text": (
-                                        "请使用 omniqq-mcp / napcat-mcp 工具控制 QQ：\n"
+                                        "请使用 omniqq-mcp 工具控制 QQ：\n"
                                         "1. 首选调用 `check_napcat_environment` 或 `get_login_info` 确认连接状态；\n"
                                         "2. 若环境未安装，询问用户许可后调用 `deploy_or_update_napcat(confirmed=True)`；\n"
                                         "3. 支持 `login_new_qq_by_qrcode` 扫码登录新账号，或 `switch_qq_account` 免扫码热切换已保存账号；\n"

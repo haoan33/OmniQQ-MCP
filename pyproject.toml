@@ -34,4 +34,3 @@ dependencies = [
 
 [project.scripts]
 omniqq-mcp = "napcat_mcp.run_mcp:main"
-napcat-mcp = "napcat_mcp.run_mcp:main"
