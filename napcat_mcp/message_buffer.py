@@ -108,14 +108,17 @@ class MessageBuffer:
                 "message_type": msg_type,
                 "sub_type": event.get("sub_type", ""),
                 "user_id": user_id,
+                "target_id": event.get("target_id"),
                 "nickname": nickname,
                 "group_id": group_id,
                 "clean_text": self.extract_clean_text(event),
                 "raw_message": event.get("raw_message", ""),
+                "message": event.get("message", []),
                 "segments": event.get("message", []),
                 "timestamp": ts,
                 "datetime": dt_str,
-                "is_self_sent": post_type == "message_sent"
+                "is_self_sent": post_type == "message_sent",
+                "raw_event": event,
             }
             self._messages.append(record)
 
@@ -149,11 +152,15 @@ class MessageBuffer:
             }
             self._requests.append(record)
 
-        # 触发已注册的外部钩子
+        # 触发已注册的外部钩子（支持同步函数与异步协程回调）
         if record:
+            import asyncio
             for hook in list(self._event_hooks):
                 try:
-                    hook(record)
+                    if asyncio.iscoroutinefunction(hook):
+                        asyncio.create_task(hook(record))
+                    else:
+                        hook(record)
                 except Exception as e:
                     logger.warning(f"执行事件钩子异常: {e}")
 

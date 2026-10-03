@@ -119,7 +119,19 @@ NapCat-MCP 秉持 **“机制与策略彻底解耦”** 的架构设计理念：
 
 ---
 
+## 📝 版本更新日志 (Changelog)
+
+### `v1.0.1` (2026-10-03)
+- **新增 MCP 工具调用审计日志钩子 (`_record_mcp_activity`)**：每次工具执行自动向 `outputs/mcp_activity.jsonl`（或环境变量 `OMNIQQ_ACTIVITY_LOG` 指定路径）追加结构化 JSONL 审计日志，支持外部监控台实时回显 AI 发送/上传动作；
+- **升级异步事件回调总线 (`MessageBuffer.register_event_hook`)**：原生兼容同步函数与 `async def` 异步协程回调，标准化事件结构新增 `target_id` 与 `raw_event`，支持上层监听服务直接复用 `NapCatClient._ws_loop()`；
+- **新增终端多账号管理 CLI (`napcat_mcp.account_cli`)**：支持通过命令行交互管理多 QQ 账号与扫码登录。
+
+> 完整历史记录请参阅 [CHANGELOG.md](./CHANGELOG.md)。
+
+---
+
 ## 📄 开源协议 (License)
 
 本项目基于 [MIT License](./LICENSE) 开源。
+
 

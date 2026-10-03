@@ -229,6 +229,9 @@ def kill_napcat_processes() -> int:
     return killed_count
 
 
+kill_existing_napcat = kill_napcat_processes
+
+
 def start_qrcode_login_session(
     open_image: bool = True,
     wait_scan_seconds: int = 45

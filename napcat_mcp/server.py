@@ -191,6 +191,7 @@ class NapCatMCPServer:
         try:
             res = await handler(client=self.client, **arguments)
             is_err = isinstance(res, dict) and res.get("status") in ("failed", "error")
+            self._record_mcp_activity(tool_name, arguments, res, is_err)
             text_out = json.dumps(res, ensure_ascii=False, indent=2)
             return self._ok_response(msg_id, {
                 "content": [
@@ -230,6 +231,27 @@ class NapCatMCPServer:
                 ],
                 "isError": True
             })
+
+    @staticmethod
+    def _record_mcp_activity(tool_name: str, arguments: Dict[str, Any], res: Any, is_err: bool):
+        """将 MCP 工具调用摘要追加写入 JSONL 审计日志（默认 outputs/mcp_activity.jsonl，可通过 OMNIQQ_ACTIVITY_LOG 覆盖）"""
+        try:
+            import time
+            log_file = os.environ.get("OMNIQQ_ACTIVITY_LOG", "").strip()
+            if not log_file:
+                project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                log_file = os.path.join(project_root, "outputs", "mcp_activity.jsonl")
+            os.makedirs(os.path.dirname(os.path.abspath(log_file)), exist_ok=True)
+            entry = {
+                "ts": round(time.time(), 3),
+                "tool": tool_name,
+                "args": arguments,
+                "status": "error" if is_err else "ok",
+            }
+            with open(log_file, "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
 
     @staticmethod
     def _ok_response(msg_id: Any, result: Any) -> Dict[str, Any]:

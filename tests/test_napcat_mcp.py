@@ -215,6 +215,29 @@ class TestNapCatMCP(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(kw_msgs), 1)
         self.assertEqual(kw_msgs[0]["user_id"], 10001)
 
+        # 验证异步协程事件钩子与 raw_event / target_id 字段
+        async_received = []
+
+        async def async_hook(ev):
+            async_received.append(ev)
+
+        buf.register_event_hook(async_hook)
+        buf.push_event({
+            "post_type": "message_sent",
+            "message_id": 1003,
+            "message_type": "private",
+            "user_id": 10000,
+            "target_id": 10001,
+            "message": [{"type": "text", "data": {"text": "收到"}}],
+            "raw_message": "收到",
+            "time": 1700000020
+        })
+        import asyncio
+        await asyncio.sleep(0.05)
+        self.assertEqual(len(async_received), 1)
+        self.assertEqual(async_received[0]["target_id"], 10001)
+        self.assertIn("raw_event", async_received[0])
+
     async def test_07_stdio_subprocess_end_to_end(self):
         """验证通过子进程 stdio 管道与 run_mcp.py 进行真实 JSON-RPC 交互"""
         run_script = os.path.join(PROJECT_ROOT, "napcat_mcp", "run_mcp.py")
