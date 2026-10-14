@@ -1,7 +1,7 @@
 """
 群组管理与治理控制工具集 (踢人、禁言、管理员、群名片、头衔、加群审批、群待办等)
 """
-from typing import Any, Optional
+from typing import Any
 from . import registry
 from ..client import NapCatClient
 

@@ -16,7 +16,7 @@ async def upload_private_file(
     """
     向指定好友发送本地文件附件 (NapCat OneBot 11: upload_private_file)。
     :param user_id: 接收方好友 QQ 号
-    :param file_path: 本地文件的绝对路径 (如 'D:/Desktop/report.xlsx')
+    :param file_path: 本地文件的绝对路径（例如 `/path/to/report.xlsx`）
     :param file_name: 对方看到的显示文件名 (如 'report.xlsx')
     """
     return await client.call_api(

@@ -16,10 +16,79 @@ class MessageBuffer:
 
     def __init__(self, maxlen: int = 200):
         self.maxlen = maxlen
-        self._messages: deque[dict[str, Any]] = deque(maxlen=maxlen)
-        self._notices: deque[dict[str, Any]] = deque(maxlen=100)
-        self._requests: deque[dict[str, Any]] = deque(maxlen=100)
+        self._accounts: dict[str, tuple[deque, deque, deque]] = {}
+        self.active_account = ''
+        self._messages, self._notices, self._requests = self._account_buffers('')
         self._event_hooks: list[Callable[[dict[str, Any]], Any]] = []
+        self._hook_tasks = set()
+        self._hook_queue = None
+        self._hook_worker = None
+
+    def _account_buffers(self, account: str):
+        if account not in self._accounts:
+            self._accounts[account] = (deque(maxlen=self.maxlen), deque(maxlen=100), deque(maxlen=100))
+        return self._accounts[account]
+
+    def select_account(self, account: str):
+        """Change the visible account without discarding the previous account's history."""
+        account = str(account).strip()
+        if not account.isdigit():
+            raise ValueError('QQ account must be numeric')
+        self.active_account = account
+        self._messages, self._notices, self._requests = self._account_buffers(account)
+
+    async def close(self):
+        import asyncio
+        if self._hook_queue is not None:
+            try:
+                await asyncio.wait_for(self._hook_queue.join(), timeout=5)
+            except asyncio.TimeoutError:
+                logger.warning('事件钩子未在关闭期限内处理完毕')
+        if self._hook_worker is not None:
+            self._hook_worker.cancel()
+            await asyncio.gather(self._hook_worker, return_exceptions=True)
+        tasks = list(self._hook_tasks)
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def push_event_async(self, event: dict[str, Any]):
+        """Receive events with bounded hook backpressure and ordered callbacks."""
+        import asyncio
+        record = self.push_event(event, dispatch_hooks=False)
+        if record and self._event_hooks and str(event.get('self_id') or '') == self.active_account:
+            if self._hook_queue is None:
+                self._hook_queue = asyncio.Queue(maxsize=200)
+                self._hook_worker = asyncio.create_task(self._drain_hooks())
+            await self._hook_queue.put(record)
+        return record
+
+    async def _drain_hooks(self):
+        import asyncio
+        while True:
+            record = await self._hook_queue.get()
+            try:
+                for hook in list(self._event_hooks):
+                    try:
+                        if asyncio.iscoroutinefunction(hook):
+                            await hook(record)
+                        else:
+                            await asyncio.to_thread(hook, record)
+                    except Exception:
+                        logger.exception('事件钩子失败')
+            finally:
+                self._hook_queue.task_done()
+
+    def _spawn_hook(self, hook, record):
+        import asyncio
+        async def run():
+            try:
+                await hook(record)
+            except Exception:
+                logger.exception('异步事件钩子失败')
+        task = asyncio.create_task(run())
+        self._hook_tasks.add(task)
+        task.add_done_callback(self._hook_tasks.discard)
 
     def register_event_hook(self, callback: Callable[[dict[str, Any]], Any]):
         """
@@ -66,8 +135,15 @@ class MessageBuffer:
                     parts.append(f"[回复消息ID:{sdata.get('id', '')}] ")
                 elif stype == "face":
                     parts.append(f"[表情:{sdata.get('id', '')}]")
+                elif stype == "mface":
+                    parts.append(f"[商城表情:{sdata.get('summary') or sdata.get('emoji_id', '')}]")
+                elif stype == "video":
+                    parts.append(f"[视频:{sdata.get('url') or sdata.get('file', '')}]")
                 elif stype == "json":
                     parts.append("[卡片/小程序消息]")
+                elif stype in ("music", "location", "contact", "miniapp", "xml", "markdown",
+                               "onlinefile", "flashtransfer", "dice", "rps", "poke"):
+                    parts.append(f"[{stype}:{sdata.get('title') or sdata.get('name') or sdata.get('result') or ''}]")
                 elif stype == "forward":
                     parts.append(f"[合并转发ID:{sdata.get('id', '')}]")
                 else:
@@ -81,10 +157,22 @@ class MessageBuffer:
             return str(raw).strip()
         return str(msg or "").strip()
 
-    def push_event(self, event: dict[str, Any]) -> Optional[dict[str, Any]]:
+    def push_event(self, event: dict[str, Any], dispatch_hooks: bool = True) -> Optional[dict[str, Any]]:
         """处理并缓存收到的 WebSocket 事件"""
         if not isinstance(event, dict):
             return None
+
+        account = str(event.get('self_id') or '')
+        if account and not account.isdigit():
+            return None
+        if not account:
+            if self.active_account:
+                logger.warning('丢弃缺少 self_id 的事件，避免混入当前账号缓存')
+                return None
+            account = ''
+        elif not self.active_account:
+            self.select_account(account)
+        messages, notices, requests = self._account_buffers(account)
 
         post_type = event.get("post_type")
         if post_type == "meta_event":
@@ -120,7 +208,7 @@ class MessageBuffer:
                 "is_self_sent": post_type == "message_sent",
                 "raw_event": event,
             }
-            self._messages.append(record)
+            messages.append(record)
 
         elif post_type == "notice":
             record = {
@@ -135,7 +223,7 @@ class MessageBuffer:
                 "datetime": dt_str,
                 "raw_event": event
             }
-            self._notices.append(record)
+            notices.append(record)
 
         elif post_type == "request":
             record = {
@@ -150,15 +238,15 @@ class MessageBuffer:
                 "datetime": dt_str,
                 "raw_event": event
             }
-            self._requests.append(record)
+            requests.append(record)
 
         # 触发已注册的外部钩子（支持同步函数与异步协程回调）
-        if record:
+        if record and account == self.active_account and dispatch_hooks:
             import asyncio
             for hook in list(self._event_hooks):
                 try:
                     if asyncio.iscoroutinefunction(hook):
-                        asyncio.create_task(hook(record))
+                        self._spawn_hook(hook, record)
                     else:
                         hook(record)
                 except Exception as e:
@@ -197,7 +285,8 @@ class MessageBuffer:
                     if item.get("group_id") != tid and item.get("user_id") != tid:
                         continue
                 else:
-                    if item.get("user_id") != tid:
+                    peer = item.get('target_id') if item.get('is_self_sent') else item.get('user_id')
+                    if peer != tid:
                         continue
 
             if keyword:
@@ -215,8 +304,9 @@ class MessageBuffer:
 
     def get_recent_notices_and_requests(self, count: int = 20) -> dict[str, list[dict[str, Any]]]:
         """获取最近的群通知事件（如群文件上传、群成员变动）和加好友/加群请求"""
-        n_list = list(self._notices)[-count:]
-        r_list = list(self._requests)[-count:]
+        count = max(0, int(count))
+        n_list = list(self._notices)[-count:] if count else []
+        r_list = list(self._requests)[-count:] if count else []
         return {
             "notices": n_list,
             "requests": r_list

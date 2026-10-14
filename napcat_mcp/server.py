@@ -1,6 +1,6 @@
 """
 NapCat MCP Server 核心协议调度器 (标准 JSON-RPC 2.0 over stdio)
-100% 遵循 Model Context Protocol 官方规范，无需外部重量级框架依赖。
+实现 MCP 初始化、工具、资源和提示词的 stdio 请求调度。
 """
 import os
 import sys
@@ -13,7 +13,7 @@ from typing import Any, Dict, Optional
 from . import __version__
 from .client import NapCatClient
 from .deployer import check_napcat_environment
-from .tools import registry
+from .tools import registry, ToolRegistry
 
 # 导入所有工具子模块以触发 @registry.register() 装饰器注册
 from .tools import (  # noqa: F401
@@ -28,6 +28,7 @@ from .tools import (  # noqa: F401
 )
 
 logger = logging.getLogger("NapCatMCP.Server")
+SUPPORTED_PROTOCOL_VERSION = '2024-11-05'
 
 
 class NapCatMCPServer:
@@ -35,6 +36,8 @@ class NapCatMCPServer:
 
     def __init__(self, client: Optional[NapCatClient] = None):
         self.client = client or NapCatClient()
+        self.registry = ToolRegistry()
+        self.registry.tools_map.update(registry.tools_map)
         self.server_info = {
             "name": "omniqq-mcp",
             "version": __version__
@@ -42,9 +45,15 @@ class NapCatMCPServer:
 
     async def handle_request(self, message: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """处理单条 JSON-RPC 2.0 消息；若是 Notification (无 id) 则返回 None"""
+        if not isinstance(message,dict):
+            return self._error_response(None,-32600,'请求必须为 JSON 对象')
         msg_id = message.get("id")
+        if message.get('jsonrpc') != '2.0' or not isinstance(message.get('method'),str) or (msg_id is not None and type(msg_id) not in (int,str)):
+            return self._error_response(None,-32600,'无效的 JSON-RPC 请求')
         method = message.get("method", "")
-        params = message.get("params") or {}
+        params = message.get("params", {})
+        if not isinstance(params,dict):
+            return self._error_response(msg_id,-32602,'params 必须为对象')
 
         # Notification 通知无需返回响应包
         if msg_id is None:
@@ -54,9 +63,8 @@ class NapCatMCPServer:
 
         try:
             if method == "initialize":
-                client_proto = params.get("protocolVersion", "2024-11-05")
                 result = {
-                    "protocolVersion": client_proto,
+                    "protocolVersion": SUPPORTED_PROTOCOL_VERSION,
                     "capabilities": {
                         "tools": {"listChanged": False},
                         "resources": {"subscribe": False, "listChanged": False},
@@ -77,12 +85,12 @@ class NapCatMCPServer:
 
             elif method == "tools/list":
                 return self._ok_response(msg_id, {
-                    "tools": registry.list_tools()
+                    "tools": self.registry.list_tools()
                 })
 
             elif method == "tools/call":
                 tool_name = params.get("name", "")
-                arguments = params.get("arguments") or {}
+                arguments = params.get("arguments", {})
                 return await self._handle_tool_call(msg_id, tool_name, arguments)
 
             elif method == "resources/list":
@@ -172,8 +180,12 @@ class NapCatMCPServer:
         tool_name: str,
         arguments: Dict[str, Any]
     ) -> Dict[str, Any]:
-        tool = registry.get_tool(tool_name)
+        if not isinstance(tool_name,str):
+            self._record_mcp_activity('<invalid>', arguments, {'status': 'error'}, True)
+            return self._error_response(msg_id,-32602,'工具名称必须为字符串')
+        tool = self.registry.get_tool(tool_name)
         if not tool:
+            self._record_mcp_activity(tool_name, arguments, {'status': 'error'}, True)
             return self._ok_response(msg_id, {
                 "content": [
                     {
@@ -189,8 +201,9 @@ class NapCatMCPServer:
 
         handler = tool["handler"]
         try:
+            ToolRegistry.validate(arguments,tool['inputSchema'])
             res = await handler(client=self.client, **arguments)
-            is_err = isinstance(res, dict) and res.get("status") in ("failed", "error")
+            is_err = isinstance(res, dict) and (res.get("status") in ("failed", "error", "not_installed", "scan_timed_out") or res.get('retcode',0) != 0)
             self._record_mcp_activity(tool_name, arguments, res, is_err)
             text_out = json.dumps(res, ensure_ascii=False, indent=2)
             return self._ok_response(msg_id, {
@@ -202,7 +215,8 @@ class NapCatMCPServer:
                 ],
                 "isError": bool(is_err)
             })
-        except TypeError as te:
+        except (TypeError, ValueError) as te:
+            self._record_mcp_activity(tool_name,arguments,{'error':str(te)},True)
             return self._ok_response(msg_id, {
                 "content": [
                     {
@@ -218,6 +232,7 @@ class NapCatMCPServer:
                 "isError": True
             })
         except Exception as e:
+            self._record_mcp_activity(tool_name,arguments,{'error':str(e)},True)
             return self._ok_response(msg_id, {
                 "content": [
                     {
@@ -234,24 +249,15 @@ class NapCatMCPServer:
 
     @staticmethod
     def _record_mcp_activity(tool_name: str, arguments: Dict[str, Any], res: Any, is_err: bool):
-        """将 MCP 工具调用摘要追加写入 JSONL 审计日志（默认 outputs/mcp_activity.jsonl，可通过 OMNIQQ_ACTIVITY_LOG 覆盖）"""
-        try:
-            import time
-            log_file = os.environ.get("OMNIQQ_ACTIVITY_LOG", "").strip()
-            if not log_file:
-                project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                log_file = os.path.join(project_root, "outputs", "mcp_activity.jsonl")
-            os.makedirs(os.path.dirname(os.path.abspath(log_file)), exist_ok=True)
-            entry = {
-                "ts": round(time.time(), 3),
-                "tool": tool_name,
-                "args": arguments,
-                "status": "error" if is_err else "ok",
-            }
-            with open(log_file, "a", encoding="utf-8") as f:
-                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-        except Exception:
-            pass
+        """Record tool metadata without message text, file contents or credentials."""
+        from .audit import record_activity
+        if not isinstance(arguments, dict):
+            arguments = {}
+        params = arguments.get('params') if isinstance(arguments.get('params'), dict) else {}
+        target = next((source[key] for source in (arguments, params)
+                       for key in ('user_id', 'group_id', 'target_id') if key in source), None)
+        record_activity(tool_name, target=target, status='error' if is_err else 'ok',
+                        result=res, task_id=arguments.get('task_id'), version=arguments.get('version'))
 
     @staticmethod
     def _ok_response(msg_id: Any, result: Any) -> Dict[str, Any]:
@@ -277,6 +283,32 @@ class NapCatMCPServer:
         # 启动后台 WebSocket 实时消息监听任务
         self.client.start_background_ws()
         loop = asyncio.get_running_loop()
+        active: dict[Any, asyncio.Task] = {}
+        pending: set[asyncio.Task] = set()
+        slots = asyncio.Semaphore(8)
+        output_lock = asyncio.Lock()
+
+        async def write_response(response):
+            if response is None:
+                return
+            async with output_lock:
+                sys.stdout.write(json.dumps(response, ensure_ascii=False) + "\n")
+                sys.stdout.flush()
+
+        async def dispatch(request):
+            request_id = request.get('id') if isinstance(request, dict) else None
+            try:
+                async with slots:
+                    response = await self.handle_request(request)
+            except asyncio.CancelledError:
+                response = self._error_response(request_id, -32800, '请求已取消')
+            except Exception:
+                logger.exception('MCP 请求调度失败')
+                response = self._error_response(request_id, -32603, '服务器内部错误')
+            finally:
+                if request_id is not None and active.get(request_id) is asyncio.current_task():
+                    active.pop(request_id, None)
+            await write_response(response)
 
         try:
             while True:
@@ -291,15 +323,39 @@ class NapCatMCPServer:
                     req = json.loads(line_str)
                 except json.JSONDecodeError as je:
                     err_resp = self._error_response(None, -32700, f"JSON 解析错误: {je}")
-                    sys.stdout.write(json.dumps(err_resp, ensure_ascii=False) + "\n")
-                    sys.stdout.flush()
+                    await write_response(err_resp)
                     continue
-
-                resp = await self.handle_request(req)
-                if resp is not None:
-                    sys.stdout.write(json.dumps(resp, ensure_ascii=False) + "\n")
-                    sys.stdout.flush()
+                if isinstance(req, dict) and req.get('method') == 'notifications/cancelled':
+                    request_id = (req.get('params') or {}).get('requestId') if isinstance(req.get('params'), dict) else None
+                    task = active.get(request_id)
+                    if task and not task.done():
+                        # Once a write starts, its remote effect may outlive cancellation.
+                        if getattr(task, 'cancellable', False):
+                            task.cancel()
+                    continue
+                if len(pending) >= 64:
+                    if isinstance(req, dict) and 'id' in req:
+                        await write_response(self._error_response(req['id'], -32000, '服务器繁忙'))
+                    continue
+                request_id = req.get('id') if isinstance(req, dict) else None
+                if request_id is not None and request_id in active:
+                    await write_response(self._error_response(request_id, -32600, '重复请求 ID'))
+                    continue
+                task = asyncio.create_task(dispatch(req))
+                params = req.get('params') if isinstance(req, dict) else None
+                method = req.get('method') if isinstance(req, dict) else None
+                tool_name = params.get('name', '') if isinstance(params, dict) else ''
+                task.cancellable = (method in ('ping', 'resources/read', 'resources/list', 'prompts/get',
+                                               'prompts/list', 'tools/list') or
+                                    (method == 'tools/call' and tool_name.startswith(
+                                        ('get_', 'list_', 'check_', 'fetch_'))))
+                pending.add(task)
+                task.add_done_callback(pending.discard)
+                if request_id is not None:
+                    active[request_id] = task
         finally:
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
             await self.client.close()
 
 

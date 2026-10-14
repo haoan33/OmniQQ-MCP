@@ -28,6 +28,10 @@ async def check_napcat_environment(client: NapCatClient) -> dict[str, Any]:
     检查本地 NapCatQQ 运行环境、服务端口状态、已保存账号列表，并与 GitHub 官方最新 Release 版本进行对比。
     当不确定 NapCat 是否已部署、是否正在运行或是否有新版本可更新时，优先调用此工具。
     """
+    if not client.uses_local_runtime():
+        probe = await client.call_api('get_version_info', {}, timeout=5.0)
+        return {'status': 'ready' if probe.get('status') == 'ok' and probe.get('retcode', 0) == 0 else 'failed',
+                'mode': 'external', 'http_url': client.http_url, 'probe': probe}
     live_ver = None
     if is_port_listening(DEFAULT_HTTP_PORT):
         res = await client.call_api("get_version_info", {}, timeout=5.0)
@@ -52,6 +56,8 @@ async def deploy_or_update_napcat(
     :param use_local_zip_if_available: 部署时若本地存在离线包是否优先使用
     :param target_uin: 要自动配置 OneBot 11 端口的 QQ 号 (留空则使用当前默认账号)
     """
+    if not client.uses_local_runtime():
+        return {'status': 'failed', 'error': '外部 OneBot URL 不能部署本地 NapCat'}
     return await _deploy_napcat(
         action=action,
         confirmed=confirmed,
@@ -66,6 +72,11 @@ async def list_qq_accounts(client: NapCatClient) -> dict[str, Any]:
     查看本地沙箱中所有已保存登录凭证的 QQ 账号列表、当前默认激活账号以及当前正在线运行的账号信息。
     列表中的账号均可直接通过 switch_qq_account 免扫码快速切换上线。
     """
+    if not client.uses_local_runtime():
+        probe = await client.call_api('get_login_info', {}, timeout=5.0)
+        return {'status': 'ok' if probe.get('status') == 'ok' and probe.get('retcode', 0) == 0 else 'failed',
+                'mode': 'external', 'online_account': probe.get('data'),
+                'default_account': None, 'cached_accounts': [], 'total_cached': 0}
     current_default = get_current_account()
     available = get_available_accounts()
     online_account = None
@@ -99,6 +110,8 @@ async def switch_qq_account(
     :param restart_immediately: 是否立即重启 NapCat 服务使新账号即刻上线，默认 True
     :param wait_seconds: 重启时等待端口就绪的最大秒数，默认 25
     """
+    if not client.uses_local_runtime():
+        return {'status': 'failed', 'error': '外部 OneBot URL 不支持管理本地 QQ 账号'}
     uin_clean = str(uin).strip()
     ok = set_current_account(uin_clean)
     if not ok:
@@ -106,6 +119,7 @@ async def switch_qq_account(
             "status": "failed",
             "error": f"无效的 QQ 号格式或写入配置失败: {uin}"
         }
+    client.buffer.select_account(uin_clean)
 
     if not restart_immediately:
         return {
@@ -134,7 +148,7 @@ async def switch_qq_account(
         "start_result": start_res,
         "online_account": online_info,
         "available_accounts": get_available_accounts(),
-        "message": f"已成功切换至 QQ 账号 {uin_clean} 并重新拉起服务！"
+        "message": f"账号 {uin_clean} 的服务启动状态：{start_res.get('status')}。"
     }
 
 
@@ -153,6 +167,8 @@ async def login_new_qq_by_qrcode(
     :param open_image: 是否自动在电脑屏幕上用图片查看器弹出二维码图片，默认 True
     :param wait_scan_seconds: 等待用户手机扫码的最大秒数，默认 45 秒
     """
+    if not client.uses_local_runtime():
+        return {'status': 'failed', 'error': '外部 OneBot URL 不支持本地扫码登录'}
     scan_res = await asyncio.to_thread(
         start_qrcode_login_session,
         open_image=open_image,
@@ -161,6 +177,7 @@ async def login_new_qq_by_qrcode(
 
     if scan_res.get("status") == "logged_in_and_configured":
         new_uin = scan_res.get("new_uin")
+        client.buffer.select_account(new_uin)
         start_res = await client.start_napcat_process(uin=new_uin, wait_seconds=25)
         client.start_background_ws()
         scan_res["service_start_result"] = start_res
@@ -181,6 +198,8 @@ async def get_login_qrcode_image(
     查看本地最新的 NapCat 登录二维码图片路径 (`qrcode.png`)，并可选在电脑屏幕上直接打开展示该二维码。
     :param open_image: 若二维码文件存在，是否立即在屏幕上打开图片查看器，默认 True
     """
+    if not client.uses_local_runtime():
+        return {'status': 'not_found', 'error': '外部 OneBot URL 没有本地二维码缓存'}
     exists = os.path.exists(QR_CACHE_IMAGE)
     opened = False
     if exists and open_image and os.name == "nt":
@@ -225,6 +244,8 @@ async def stop_napcat_service(client: NapCatClient) -> dict[str, Any]:
     """
     安全停止当前后台运行的 NapCat 沙箱进程 (仅精准终止 napcat_runtime 下的进程，不影响系统其他 Node 服务)。
     """
+    if not client.uses_local_runtime():
+        return {'status': 'failed', 'error': '外部 OneBot URL 不能停止本地 NapCat'}
     killed = await asyncio.to_thread(kill_napcat_processes)
     return {
         "status": "ok",
@@ -245,9 +266,13 @@ async def restart_napcat_service(
     :param uin: 指定重启登录的 QQ 号 (可选，留空则使用当前默认账号)
     :param wait_seconds: 等待端口监听就绪的秒数，默认 25
     """
+    if not client.uses_local_runtime():
+        return {'status': 'failed', 'error': '外部 OneBot URL 不能重启本地 NapCat'}
     target_uin = str(uin).strip() if uin else get_current_account()
     if target_uin:
-        set_current_account(target_uin)
+        if not set_current_account(target_uin):
+            return {'status': 'failed', 'error': '账号配置写入失败，未重启 NapCat'}
+        client.buffer.select_account(target_uin)
     killed = await asyncio.to_thread(kill_napcat_processes)
     start_res = await client.start_napcat_process(uin=target_uin, wait_seconds=wait_seconds)
     client.start_background_ws()

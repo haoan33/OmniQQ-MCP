@@ -104,20 +104,23 @@ async def get_friend_msg_history(
     client: NapCatClient,
     user_id: int,
     count: int = 20,
-    message_seq: Optional[int] = None
+    message_seq: Optional[int] = None,
+    reverse_order: bool = False
 ) -> dict[str, Any]:
     """
     从 NapCat 获取与指定好友的历史私聊消息记录 (NapCat OneBot 11: get_friend_msg_history)。
     :param user_id: 好友 QQ 号
     :param count: 获取的消息条数，默认 20
-    :param message_seq: 起始消息序号 (可选，不填则从最新一条往前拉取)
+    :param message_seq: 历史游标，填上一页最早记录的 message_id；NapCat 的参数名沿用 message_seq，但不要填返回记录的 message_seq。不填则取最新记录。
+    :param reverse_order: 向更旧的记录翻页时设为 True；默认 False 保持原工具行为。
     """
     params: dict[str, Any] = {
         "user_id": int(user_id),
-        "count": int(count)
+        "count": int(count),
+        "reverse_order": bool(reverse_order)
     }
     if message_seq is not None:
-        params["message_seq"] = int(message_seq)
+        params["message_seq"] = str(message_seq)
     return await client.call_api("get_friend_msg_history", params)
 
 
@@ -126,20 +129,23 @@ async def get_group_msg_history(
     client: NapCatClient,
     group_id: int,
     count: int = 20,
-    message_seq: Optional[int] = None
+    message_seq: Optional[int] = None,
+    reverse_order: bool = False
 ) -> dict[str, Any]:
     """
     从 NapCat 获取指定群聊的历史聊天记录 (NapCat OneBot 11: get_group_msg_history)。
     :param group_id: 群号
     :param count: 获取的消息条数，默认 20
-    :param message_seq: 起始消息序号 (可选，不填则从最新一条往前拉取)
+    :param message_seq: 历史游标，填上一页最早记录的 message_id；NapCat 的参数名沿用 message_seq，但不要填返回记录的 message_seq。不填则取最新记录。
+    :param reverse_order: 向更旧的记录翻页时设为 True；默认 False 保持原工具行为。
     """
     params: dict[str, Any] = {
         "group_id": int(group_id),
-        "count": int(count)
+        "count": int(count),
+        "reverse_order": bool(reverse_order)
     }
     if message_seq is not None:
-        params["message_seq"] = int(message_seq)
+        params["message_seq"] = str(message_seq)
     return await client.call_api("get_group_msg_history", params)
 
 

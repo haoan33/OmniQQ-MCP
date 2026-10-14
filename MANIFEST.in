@@ -1,0 +1,9 @@
+include LICENSE README.md CHANGELOG.md requirements.txt run_mcp.py
+recursive-include napcat_mcp *.py *.toml *.md *.txt
+recursive-include docs *.md
+recursive-include tests *.py
+include .github/workflows/omniqq-ci.yml
+global-exclude *.pyc *.log
+prune napcat_mcp/build
+prune napcat_mcp/__pycache__
+prune napcat_mcp/tools/__pycache__

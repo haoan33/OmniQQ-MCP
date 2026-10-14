@@ -10,12 +10,12 @@ from ..client import NapCatClient
 async def send_private_msg(
     client: NapCatClient,
     user_id: int,
-    message: str,
+    message: str | list[dict[str, Any]],
     auto_escape: bool = False
 ) -> dict[str, Any]:
     """
     向指定好友或用户发送私聊消息 (OneBot 11: send_private_msg)。
-    支持纯文本、CQ 码 (如 [CQ:image,file=xxx] / [CQ:face,id=14])。
+    支持纯文本、CQ 码或 OneBot 消息段数组 (如 [{"type":"face","data":{"id":"14"}}])。
     :param user_id: 对方 QQ 号
     :param message: 要发送的消息内容 (文本或 CQ 码字符串)
     :param auto_escape: 是否作为纯文本发送 (不解析 CQ 码)，默认 False
@@ -31,12 +31,12 @@ async def send_private_msg(
 async def send_group_msg(
     client: NapCatClient,
     group_id: int,
-    message: str,
+    message: str | list[dict[str, Any]],
     auto_escape: bool = False
 ) -> dict[str, Any]:
     """
     向指定 QQ 群发送群聊消息 (OneBot 11: send_group_msg)。
-    支持纯文本、@全体成员 ([CQ:at,qq=all] 或直接 @全体成员)、@指定成员 ([CQ:at,qq=123456]) 及图片/表情等 CQ 码。
+    支持文本、CQ 码或 OneBot 消息段数组；纯文本 @全体成员 不会产生真实提醒。
     :param group_id: 目标 QQ 群号
     :param message: 要发送的群消息内容
     :param auto_escape: 是否作为纯文本发送 (不解析 CQ 码)，默认 False
@@ -53,14 +53,14 @@ async def send_msg(
     client: NapCatClient,
     message_type: str,
     target_id: int,
-    message: str,
+    message: str | list[dict[str, Any]],
     auto_escape: bool = False
 ) -> dict[str, Any]:
     """
     通用消息发送接口 (OneBot 11: send_msg)，可根据 message_type 发送私聊或群聊消息。
     :param message_type: 消息类型，'private' (私聊) 或 'group' (群聊)
     :param target_id: 当 message_type='private' 时为对方 QQ 号；为 'group' 时为目标群号
-    :param message: 要发送的消息文本或 CQ 码
+    :param message: 要发送的文本、CQ 码或 OneBot 消息段数组
     :param auto_escape: 是否不解析 CQ 码，默认 False
     """
     params: dict[str, Any] = {

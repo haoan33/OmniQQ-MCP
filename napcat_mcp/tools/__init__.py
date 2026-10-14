@@ -3,6 +3,7 @@ NapCat MCP 工具注册表与 Schema 自动生成器
 将 Python 异步函数自动映射为符合 MCP 标准规范的 Tool 定义与 JSON Schema。
 """
 import inspect
+import types
 from typing import Any, Callable, Dict, List, Optional, Union, get_type_hints, get_origin, get_args
 
 
@@ -39,11 +40,14 @@ class ToolRegistry:
         args = get_args(py_type)
 
         # 处理 Optional[T] / Union[T, None]
-        if origin is Union:
+        if origin in (Union, types.UnionType):
             non_none = [a for a in args if a is not type(None)]
             if len(non_none) == 1:
                 return ToolRegistry._py_type_to_json_type(non_none[0])
-            return {"type": "string"}
+            return {'anyOf': [ToolRegistry._py_type_to_json_type(a) for a in args]}
+
+        if py_type is Any:
+            return {}
 
         if py_type is int:
             return {"type": "integer"}
@@ -54,7 +58,7 @@ class ToolRegistry:
         if py_type is str:
             return {"type": "string"}
         if py_type is list or origin is list:
-            return {"type": "array", "items": {}}
+            return {"type": "array", "items": ToolRegistry._py_type_to_json_type(args[0]) if args else {}}
         if py_type is dict or origin is dict:
             return {"type": "object"}
         return {"type": "string"}
@@ -104,10 +108,42 @@ class ToolRegistry:
         schema: Dict[str, Any] = {
             "type": "object",
             "properties": properties,
+            "additionalProperties": False,
         }
         if required:
             schema["required"] = required
         return schema
+
+    @staticmethod
+    def validate(value, schema, path='arguments'):
+        if 'anyOf' in schema:
+            for variant in schema['anyOf']:
+                try:
+                    ToolRegistry.validate(value, variant, path)
+                    return
+                except ValueError:
+                    pass
+            raise ValueError(f'{path} 不符合任何允许的类型')
+        typ = schema.get('type')
+        valid = {'object':isinstance(value,dict), 'array':isinstance(value,list),
+                 'string':isinstance(value,str), 'integer':type(value) is int,
+                 'number':type(value) in (int,float), 'boolean':type(value) is bool,
+                 'null':value is None}
+        if typ and not valid.get(typ,False):
+            raise ValueError(f'{path} 必须为 {typ}')
+        if typ == 'object':
+            for key in schema.get('required',[]):
+                if key not in value:
+                    raise ValueError(f'{path}.{key} 为必填参数')
+            properties = schema.get('properties',{})
+            if schema.get('additionalProperties') is False and set(value) - set(properties):
+                raise ValueError(f'{path} 含未知参数')
+            for key, child in value.items():
+                if key in properties:
+                    ToolRegistry.validate(child,properties[key],f'{path}.{key}')
+        if typ == 'array':
+            for index, child in enumerate(value):
+                ToolRegistry.validate(child,schema.get('items',{}),f'{path}[{index}]')
 
     def list_tools(self) -> List[Dict[str, Any]]:
         """返回符合 MCP `tools/list` 标准响应格式的工具列表"""

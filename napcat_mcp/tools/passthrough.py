@@ -11,6 +11,7 @@ NAPCAT_ALL_ACTIONS = {
     "messaging": [
         "send_private_msg", "send_group_msg", "send_msg", "delete_msg", "get_msg",
         "get_forward_msg", "send_forward_msg", "send_private_forward_msg", "send_group_forward_msg",
+        "get_friend_msg_history", "get_group_msg_history",
         "upload_forward_msg", "send_like", "send_poke", "set_msg_emoji_like", "fetch_emoji_like",
         "get_emoji_likes", "mark_msg_as_read", "mark_private_msg_as_read", "mark_group_msg_as_read",
         "set_essence_msg", "delete_essence_msg", "get_essence_msg_list", "send_ark_share",

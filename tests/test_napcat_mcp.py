@@ -6,6 +6,7 @@ import sys
 import json
 import subprocess
 import unittest
+from unittest.mock import AsyncMock, patch
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
@@ -17,7 +18,32 @@ from napcat_mcp.message_buffer import MessageBuffer
 
 class TestNapCatMCP(unittest.IsolatedAsyncioTestCase):
 
+    async def test_structured_message_segments_are_forwarded_unchanged(self):
+        from napcat_mcp.tools.messaging import send_private_msg, send_group_msg
+        client = type('Client', (), {'call_api': AsyncMock(return_value={'status':'ok'})})()
+        message = [{'type':'face','data':{'id':'14'}},
+                   {'type':'mface','data':{'emoji_id':'77','key':'k','summary':'微笑'}}]
+        await send_private_msg(client, 103, message)
+        client.call_api.assert_awaited_with('send_private_msg',
+            {'user_id':103,'message':message,'auto_escape':False})
+        await send_group_msg(client, 999, message)
+        client.call_api.assert_awaited_with('send_group_msg',
+            {'group_id':999,'message':message,'auto_escape':False})
+        tools = self.server.registry.list_tools()
+        send_schema = next(tool['inputSchema'] for tool in tools if tool['name'] == 'send_private_msg')
+        self.assertEqual({part['type'] for part in send_schema['properties']['message']['anyOf']},
+                         {'string','array'})
+        cleaned = MessageBuffer.extract_clean_text({'message': message})
+        self.assertIn('表情:14', cleaned)
+        self.assertIn('商城表情:微笑', cleaned)
+
     async def asyncSetUp(self):
+        self.release_patch = patch('napcat_mcp.deployer.fetch_github_latest_release', AsyncMock(return_value={'reachable':False,'error':'offline test'}))
+        self.release_patch.start()
+        self.addCleanup(self.release_patch.stop)
+        self.port_patch = patch('napcat_mcp.tools.env_lifecycle.is_port_listening',return_value=False)
+        self.port_patch.start()
+        self.addCleanup(self.port_patch.stop)
         self.server = NapCatMCPServer()
         # 测试中禁用自动拉起真实进程，防止单元测试产生副作用
         self.server.client.auto_heal = False

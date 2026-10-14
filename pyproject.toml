@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "omniqq-mcp"
-version = "1.0.1"
-description = "OmniQQ-MCP: Full-Featured NapCatQQ (OneBot 11) Model Context Protocol (MCP) Server with QR Login, Multi-Account Hot-Switch, Auto-Deploy & 144+ Actions"
+version = "1.1.0"
+description = "NapCat OneBot 11 MCP server with 74 tools, account-isolated events and concurrent requests"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
@@ -28,9 +28,15 @@ keywords = [
 ]
 dependencies = [
     "aiohttp>=3.8.0",
-    "websockets>=11.0.0",
+    "websockets>=14.0,<17",
     "psutil>=5.9.0"
 ]
 
 [project.scripts]
 omniqq-mcp = "napcat_mcp.run_mcp:main"
+
+[tool.setuptools.packages.find]
+include = ["napcat_mcp", "napcat_mcp.tools"]
+
+[tool.setuptools]
+include-package-data = false

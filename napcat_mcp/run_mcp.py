@@ -6,6 +6,7 @@ import os
 import sys
 import asyncio
 import logging
+from logging.handlers import RotatingFileHandler
 import argparse
 
 # 确保项目根目录在 sys.path 中
@@ -23,14 +24,18 @@ if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 # 日志严禁输出到 stdout (stdout 专用于 MCP JSON-RPC 通信)，全部定向到 stderr 与日志文件
-LOG_FILE = os.path.join(CURRENT_DIR, "napcat_mcp.log")
+from napcat_mcp.config import USER_DATA_DIR  # noqa: E402
+LOG_FILE = os.environ.get('OMNIQQ_LOG_FILE') or os.path.join(USER_DATA_DIR, 'logs', 'napcat_mcp.log')
+log_handlers = [logging.StreamHandler(sys.stderr)]
+try:
+    os.makedirs(os.path.dirname(os.path.abspath(LOG_FILE)), exist_ok=True)
+    log_handlers.append(RotatingFileHandler(LOG_FILE, maxBytes=5_000_000, backupCount=3, encoding='utf-8'))
+except OSError as exc:
+    sys.stderr.write(f'OmniQQ 文件日志不可用: {exc}\n')
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] [%(name)s]: %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stderr),
-        logging.FileHandler(LOG_FILE, encoding="utf-8")
-    ]
+    handlers=log_handlers
 )
 
 from napcat_mcp.server import NapCatMCPServer, export_antigravity_schemas  # noqa: E402

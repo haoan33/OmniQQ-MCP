@@ -5,7 +5,7 @@
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-green)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-**OmniQQ-MCP (`omniqq-mcp`)** 是一个基于 [NapNeko/NapCatQQ](https://github.com/NapNeko/NapCatQQ) 与 **OneBot 11 协议**打造的**全功能、自运维、零业务耦合的通用 QQ 控制与感知 MCP (Model Context Protocol) Server**。
+**OmniQQ-MCP (`omniqq-mcp`)** 是基于 [NapNeko/NapCatQQ](https://github.com/NapNeko/NapCatQQ) 与 **OneBot 11 协议**的 QQ 控制与事件读取 MCP Server。本版本提供 74 项具名工具与 OneBot Action 透传，新增账号隔离缓存、并发请求、只读取消和可靠性修复。
 
 通过本工具，你可以让 **Claude Desktop、Google Antigravity、Cursor、Windsurf、Cline、OpenAI Agents** 等任意支持 MCP 的 AI 智能体直接获得**操控 QQ 的双手与实时感知的眼睛**——涵盖私聊/群聊收发、合并转发、群管禁言踢人、群文件上传下载、图片 OCR、好友与资料管理、**二维码扫码登录、多 QQ 账号热切换**，以及 **一键环境自检与自动部署更新**。
 
@@ -19,14 +19,14 @@
 
 ## ✨ 功能特色与核心亮点 (Key Features)
 
-### 1. 🦾 全量 144+ 项 NapCat 接口 100% 覆盖（74 个一级具名工具 + 万能透传）
-- **74 个开箱即用的第一公民具名工具 (First-Class Tools)**：提供完备的 JSON Schema 类型校验与清晰参数说明，覆盖 99% 的高频操作；
+### 1. 🦾 74 项具名工具 + 144+ 项 Action 目录与透传（74 个一级具名工具 + 万能透传）
+- **74 个开箱即用的第一公民具名工具 (First-Class Tools)**：提供完备的 JSON Schema 类型校验与清晰参数说明，覆盖常用消息、文件、群管理和账号操作；
 - **万能底层接口透传 (`call_napcat_api`)**：支持直接调用 NapCat 官方引擎全部 **144+ 个标准与扩展 Action**（如群相册、群打卡、语音转文字 `fetch_ptt_text`、AI 声聊 `send_group_ai_record` 等），并内置 `list_supported_napcat_actions` 供 AI 自主查阅全部接口目录。
 
-### 2. 📱 原生支持二维码扫码登录与多 QQ 账号秒级热切换
+### 2. 📱 原生支持二维码扫码登录与多 QQ 账号切换
 - **新账号扫码登录 (`login_new_qq_by_qrcode`)**：无需手动折腾配置文件，AI 一键拉起扫码沙箱、在屏幕自动弹出高清二维码图片 (`qrcode.png`)，用户手机扫码后**自动生成 OneBot 11 (3000/3001) 端口配置并转为后台常驻服务**；
-- **多账号免扫码热切换 (`list_qq_accounts` / `switch_qq_account`)**：自动识别本地已缓存的所有历史登录 QQ 号，支持在多个 QQ 账号之间秒级热重启切换上线；
-- **精准进程控制 (`start_napcat_service` / `stop_napcat_service` / `restart_napcat_service`)**：精准管理 `napcat_runtime` 下的沙箱进程，绝不误杀系统其他 Node.js 服务。
+- **多账号免扫码热切换 (`list_qq_accounts` / `switch_qq_account`)**：自动识别本地已缓存的所有历史登录 QQ 号，支持在多个 QQ 账号之间重启切换上线（耗时取决于登录状态）；
+- **精准进程控制 (`start_napcat_service` / `stop_napcat_service` / `restart_napcat_service`)**：精准管理 `napcat_runtime` 下的沙箱进程，按可执行文件与入口路径匹配托管进程。
 
 ### 3. 🛠️ 环境智能自检、版本对比与一键安全自动部署 (`Self-Deploying & Auto-Healing`)
 - **环境诊断 (`check_napcat_environment`)**：自动检测本地 NapCat 运行时完整性、3000/3001 端口状态，并实时连接 GitHub Release API 对比官方最新版本；
@@ -61,8 +61,12 @@
 本服务采用原生异步 JSON-RPC 2.0 实现，依赖极度精简：
 
 ```bash
-pip install aiohttp websockets psutil
+python -m pip install -r requirements.txt
 ```
+
+依赖范围见 `requirements.txt`，WebSocket 使用 `websockets>=14,<17`。可在本目录构建 wheel 或执行 `pip install .`，入口为 `omniqq-mcp`。
+
+本地 NapCat 托管、扫码、进程管理与自动部署仅支持 Windows；连接外部 OneBot URL 时不检查或启动本地端口。Python、WebSocket、MCP 和 NapCat 的版本矩阵，以及升级备份和回滚方式，见 [可靠性审查](docs/RELIABILITY_REVIEW.md)。
 
 ### 2. 在 MCP 客户端中挂载 (`mcp_config.json`)
 
@@ -91,42 +95,36 @@ pip install aiohttp websockets psutil
 挂载完成后，直接对你的 AI 助手说：
 - *“检查一下我的 NapCat 环境状态，如果没部署帮我自动部署一下”*
 - *“帮我启动二维码扫码登录一个新 QQ 账号”*
-- *“查看我已缓存的 QQ 账号，并切换到小号上线”*
+- *“查看我已缓存的 QQ 账号，并切换到另一个账号上线”*
 - *“看看我最近收到了哪些 QQ 消息，给群 12345678 发一条通知”*
 
 ---
 
-## 🗺️ 后续迭代路线图 (Roadmap)
+## v1.1.0 更新（2026-10-14）
 
-NapCat-MCP 秉持 **“机制与策略彻底解耦”** 的架构设计理念：底层 MCP Server 保持纯净稳定的控制工具库，上层通过独立的事件流机制实现智能化消息应答。下一步迭代规划如下：
+- **账号隔离缓存**：消息、通知和申请按 `self_id` 保存在内存中，切换账号不会混用收件记录。
+- **并发与取消**：stdio 同时处理请求，慢请求不阻塞查询；只读请求支持 `notifications/cancelled`，写操作继续完成并报告实际结果。
+- **有界事件钩子**：事件按序投递，慢同步钩子在线程中执行，队列背压保护 WebSocket 读取。
+- **OneBot 鉴权**：HTTP 与 WebSocket 复用用户数据目录中的随机 Token；403 恢复先用只读探测验证候选凭据。
+- **可靠性修复**：外部端点不启动本地运行时；账号配置写入失败可见；进程清理匹配目标可执行文件和入口；升级失败回滚备份。
+- **结构化消息与校验**：保留原始消息段，补齐历史查询 Action；校验必填项和参数类型，畸形 JSON-RPC 不终止服务。
+- **元数据审计**：日志不保留消息正文、文件内容、完整调用参数或凭据，支持轮转和可配置路径。
 
-### 1. 阶段一：实时消息智能监听与多维筛选引擎 (v1.1)
-- **多维规则过滤器 (Filter Pipeline)**：
-  - 支持指定私聊/群聊白名单与黑名单，避免无差别响应；
-  - 精准识别 `@当前机器人`、`@全体成员` 以及自定义关键词/正则规则触发；
-  - 自动捕获群文件上传、好友申请、入群请求等通知事件。
-- **连发防抖与多模态消息聚合器 (Debounce Window)**：
-  - 设定 10~30 秒防抖保护窗口，自动将同一用户的连续多条短文本、表情包、图片与文件附件聚合为一个完整的结构化上下文，彻底杜绝碎片化 Token 浪费。
+更新全部 MCP 宿主使用的源码或安装包后，重启 MCP 进程以加载新版本。新安装的运行时、日志、账号选择和 Token 默认位于 `%LOCALAPPDATA%\OmniQQ-MCP`；已有 `napcat_runtime` 会继续使用。
 
-### 2. 阶段二：Agent 自动调度与闭环应答 (v1.2)
-- **双向 Agent 驱动调度器 (Agent Dispatcher)**：
-  - 支持通过 Antigravity CLI、标准 Webhook 或 OpenAI/Anthropic 兼容接口自动唤醒 AI 智能体；
-  - AI 接收结构化上下文进行推理决策，随后直接调用本 MCP Server 的 `send_private_msg` / `send_group_msg` 原生工具完成闭环自动回复。
-- **人机协同安全门禁 (Human-in-the-Loop)**：
-  - 针对大群等敏感场景，支持“AI 拟定回复草案 -> 推送管理员手机审批 -> 确认后代发”，兼具全自动与高安全。
+完整历史见 [CHANGELOG.md](./CHANGELOG.md)，兼容性和回滚说明见 [可靠性说明](docs/RELIABILITY_REVIEW.md)。
 
-> 详见完整技术方案：[docs/ROADMAP.md](./docs/ROADMAP.md)
+## 安装与连接
 
----
+源码根目录运行 `python -m pip install .`，或安装 Release 附件中的 wheel。安装后可直接使用 `omniqq-mcp` 命令作为 MCP stdio 入口。
 
-## 📝 版本更新日志 (Changelog)
+连接已有 OneBot 服务时，设置 `NAPCAT_HTTP_URL` 和 `NAPCAT_WS_URL`；鉴权 Token 从私有文件读取，`OMNIQQ_ONEBOT_TOKEN_FILE` 可覆盖默认位置。请保持 Token 文件与 OneBot 服务端鉴权配置一致。
 
-### `v1.0.1` (2026-10-03)
-- **新增 MCP 工具调用审计日志钩子 (`_record_mcp_activity`)**：每次工具执行自动向 `outputs/mcp_activity.jsonl`（或环境变量 `OMNIQQ_ACTIVITY_LOG` 指定路径）追加结构化 JSONL 审计日志，支持外部监控台实时回显 AI 发送/上传动作；
-- **升级异步事件回调总线 (`MessageBuffer.register_event_hook`)**：原生兼容同步函数与 `async def` 异步协程回调，标准化事件结构新增 `target_id` 与 `raw_event`，支持上层监听服务直接复用 `NapCatClient._ws_loop()`；
-- **新增终端多账号管理 CLI (`napcat_mcp.account_cli`)**：支持通过命令行交互管理多 QQ 账号与扫码登录。
+不要上传 Token、账号选择文件、NapCat 登录凭据、二维码、日志或运行时目录。审计仍包含运行时的目标账号和消息 ID，请保存在本地私有目录。
 
-> 完整历史记录请参阅 [CHANGELOG.md](./CHANGELOG.md)。
+## 后续计划
+
+继续完善 MCP 客户端兼容性、依赖版本验证、Action 目录与实际 NapCat 版本的对应关系。通用工具与事件钩子的路线图见 [docs/ROADMAP.md](docs/ROADMAP.md)。
 
 ---
 
