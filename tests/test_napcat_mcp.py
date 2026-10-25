@@ -84,45 +84,67 @@ class TestNapCatMCP(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ping_resp["result"], {})
 
     async def test_02_tools_list_and_schemas(self):
-        """验证全部 74 个工具的注册与 JSON Schema 合法性 (含扫码登录与账号热切换工具)"""
+        """验证默认 14 个核心工具与全量 74 个工具的注册、Annotations、OutputSchema 及 JSON Schema 合法性"""
         resp = await self.server.handle_request({
             "jsonrpc": "2.0",
             "id": 3,
             "method": "tools/list"
         })
-        tools = resp["result"]["tools"]
-        self.assertEqual(len(tools), 74)
+        core_tools = resp["result"]["tools"]
+        self.assertEqual(len(core_tools), 14)
 
-        tool_names = {t["name"] for t in tools}
+        core_names = {t["name"] for t in core_tools}
         expected_core = {
             "check_napcat_environment",
             "deploy_or_update_napcat",
-            "list_qq_accounts",
-            "switch_qq_account",
             "login_new_qq_by_qrcode",
-            "get_login_qrcode_image",
-            "start_napcat_service",
-            "stop_napcat_service",
-            "restart_napcat_service",
+            "switch_qq_account",
             "send_private_msg",
             "send_group_msg",
             "delete_msg",
             "upload_private_file",
             "upload_group_file",
-            "set_group_kick",
-            "set_group_ban",
             "get_login_info",
             "get_group_list",
             "get_recent_messages",
             "call_napcat_api",
             "list_supported_napcat_actions"
         }
-        self.assertTrue(expected_core.issubset(tool_names))
+        self.assertEqual(core_names, expected_core)
 
-        for t in tools:
+        # 验证 OMNIQQ_TOOL_PROFILE=full 全量模式下暴露全部 74 个工具
+        with patch.dict(os.environ, {"OMNIQQ_TOOL_PROFILE": "full"}):
+            full_resp = await self.server.handle_request({
+                "jsonrpc": "2.0",
+                "id": 30,
+                "method": "tools/list"
+            })
+        all_tools = full_resp["result"]["tools"]
+        self.assertEqual(len(all_tools), 74)
+
+        all_names = {t["name"] for t in all_tools}
+        self.assertTrue({
+            "list_qq_accounts",
+            "get_login_qrcode_image",
+            "start_napcat_service",
+            "stop_napcat_service",
+            "restart_napcat_service",
+            "set_group_kick",
+            "set_group_ban",
+        }.issubset(all_names))
+
+        for t in all_tools:
             self.assertTrue(t["description"], f"Tool {t['name']} 缺少描述")
+            self.assertNotIn(":param ", t["description"], f"Tool {t['name']} 描述中残留重复的 :param 行")
             self.assertEqual(t["inputSchema"]["type"], "object")
             self.assertIn("properties", t["inputSchema"])
+            for p_name, p_schema in t["inputSchema"]["properties"].items():
+                self.assertTrue(p_schema.get("description"), f"Tool {t['name']} 参数 {p_name} 缺少 schema 描述")
+            self.assertIn("outputSchema", t)
+            self.assertEqual(t["outputSchema"]["type"], "object")
+            self.assertIn("annotations", t)
+            for hint in ("readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint"):
+                self.assertIsInstance(t["annotations"].get(hint), bool)
 
     async def test_03_deploy_safety_gate(self):
         """验证 deploy_or_update_napcat 在 confirmed=False 时严格拦截并返回预览"""

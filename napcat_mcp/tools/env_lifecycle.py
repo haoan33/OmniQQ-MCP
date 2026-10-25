@@ -25,8 +25,9 @@ from ..config import (
 @registry.register()
 async def check_napcat_environment(client: NapCatClient) -> dict[str, Any]:
     """
-    检查本地 NapCatQQ 运行环境、服务端口状态、已保存账号列表，并与 GitHub 官方最新 Release 版本进行对比。
-    当不确定 NapCat 是否已部署、是否正在运行或是否有新版本可更新时，优先调用此工具。
+    检查本地 NapCatQQ 运行时安装状态、OneBot 端口 (3000/3001) 监听情况、本地缓存账号列表，并请求 GitHub Release API 对比官方最新版本。
+    适用场景：首次连接、排查接口调用失败或判断是否有新版本可升级时优先调用。不适用与替代：若仅需读取当前在线 QQ 的 user_id 与昵称，请改用轻量级的 `get_login_info`（无需请求 GitHub，速度更快）。
+    行为与返回：纯只读无副作用操作（包含一次约 5 秒超时的外部 GitHub 版本探测）；返回包含 `installed`、`port_listening`、`cached_accounts`、`latest_release` 及 `needs_update` 诊断结论的字典，失败时在相应字段返回原因。
     """
     if not client.uses_local_runtime():
         probe = await client.call_api('get_version_info', {}, timeout=5.0)
@@ -49,12 +50,14 @@ async def deploy_or_update_napcat(
     target_uin: Optional[str] = None
 ) -> dict[str, Any]:
     """
-    一键自动部署或更新 NapCat 运行时环境 (支持从 GitHub 官方 Release 下载或使用本地离线包解压并自动配置 OneBot 端口)。
-    ⚠️ 安全规范：首次调用必须保持 confirmed=False 以获取部署预览计划；向用户展示计划并获得明确授权后，再传入 confirmed=True 执行。
-    :param action: 执行动作类型，'deploy' (部署安装) 或 'update' (更新升级)
-    :param confirmed: 是否已获得用户明确许可 (False 时仅返回预览，True 时真正执行解压/下载)
-    :param use_local_zip_if_available: 部署时若本地存在离线包是否优先使用
-    :param target_uin: 要自动配置 OneBot 11 端口的 QQ 号 (留空则使用当前默认账号)
+    自动下载、解压并部署或升级本地 Windows NapCatQQ 运行时环境，同时自动写入 OneBot 11 (3000/3001) 端口配置。
+    适用场景：当 `check_napcat_environment` 显示未安装（选 `action='deploy'`）或存在新版本需升级（选 `action='update'`）时使用。不适用与替代：若运行时已安装且仅需启动、重启或切换账号，请改用 `switch_qq_account` 或 `call_napcat_api`，切勿重复重装。
+    参数约束与两阶段门禁：强制采用两阶段确认锁——首次调用必须传 `confirmed=False` 获取只读预览计划；向用户展示计划并获得明确许可后，再传 `confirmed=True` 真正执行文件覆写。`target_uin` 若指定须为 5~11 位纯数字 QQ 号字符串。
+    行为与副作用：`confirmed=True` 时会终止现有本地 NapCat 进程并覆写运行时目录（升级失败或健康检查不通过时自动回滚至旧版本备份）；仅支持本地 Windows 模式，外部远程 OneBot URL 调用将直接返回 `status='failed'`。
+    :param action: 执行模式，枚举值 'deploy'（全新部署安装）或 'update'（备份旧版并升级，失败自动回滚），默认 'deploy'
+    :param confirmed: 两阶段安全门禁开关；False 时仅返回只读部署预览计划，True 时执行真实下载解压与进程重启
+    :param use_local_zip_if_available: 为 True 时优先解压本地已缓存的离线 Release 压缩包以避免重复网络下载，默认 True
+    :param target_uin: 部署后自动绑定 OneBot 端口的 5~11 位纯数字 QQ 号字符串；留空则沿用当前默认账号
     """
     if not client.uses_local_runtime():
         return {'status': 'failed', 'error': '外部 OneBot URL 不能部署本地 NapCat'}
@@ -69,8 +72,9 @@ async def deploy_or_update_napcat(
 @registry.register()
 async def list_qq_accounts(client: NapCatClient) -> dict[str, Any]:
     """
-    查看本地沙箱中所有已保存登录凭证的 QQ 账号列表、当前默认激活账号以及当前正在线运行的账号信息。
-    列表中的账号均可直接通过 switch_qq_account 免扫码快速切换上线。
+    读取本地沙箱中所有已缓存登录凭证的 QQ 账号列表、当前默认激活账号及当前在线账号详情。
+    适用场景：在切换账号前查询有哪些历史已登录 QQ 号可供免扫码切换。不适用与替代：若仅需确认当前在线账号的 user_id 和昵称，请改用 `get_login_info`；若需同时检查运行时安装与 GitHub 版本更新，请改用 `check_napcat_environment`。
+    行为与返回：纯只读无副作用操作；返回 `service_running`、`online_account`、`default_account` 与 `cached_accounts` 数组。列表中的账号可直接传给 `switch_qq_account` 热切换。
     """
     if not client.uses_local_runtime():
         probe = await client.call_api('get_login_info', {}, timeout=5.0)
@@ -104,11 +108,13 @@ async def switch_qq_account(
     wait_seconds: int = 25
 ) -> dict[str, Any]:
     """
-    切换当前使用的 QQ 账号（支持在多个已登录过的 QQ 号之间热切换）。
-    会自动更新默认配置与 OneBot 11 端口配置；当 restart_immediately=True 时，会自动停止旧账号进程并以新账号重启上线。
-    :param uin: 要切换的目标 QQ 号
-    :param restart_immediately: 是否立即重启 NapCat 服务使新账号即刻上线，默认 True
-    :param wait_seconds: 重启时等待端口就绪的最大秒数，默认 25
+    在本地已保存登录凭证的多个 QQ 账号之间免扫码热切换，自动更新默认账号、OneBot 端口配置及按账号隔离的消息缓存池。
+    适用场景：目标 QQ 号此前已在本地扫码登录过（可通过 `check_napcat_environment` 的 `cached_accounts` 查看），需快速切换上线时调用。不适用与替代：若目标是一个从未登录过的新 QQ 号或登录凭证已失效，请勿使用本工具，应改用 `login_new_qq_by_qrcode` 扫码登录。
+    参数约束与交互：`uin` 必须为 5~11 位纯数字字符串；当 `restart_immediately=True` 时会立即终止旧账号进程并等待最多 `wait_seconds` 秒直至新账号端口就绪，为 `False` 时仅修改配置待下次启动生效。
+    行为与返回：幂等配置变更与进程重启操作（仅限本地运行时，外部 URL 返回失败）；返回 `status`、`switched_to`、`online_account` 与 `available_accounts`。
+    :param uin: 要切换上线的目标 QQ 号（5~11 位纯数字字符串，须已存在于本地缓存账号列表中）
+    :param restart_immediately: 为 True 时立即终止旧进程并以新账号重启上线；为 False 时仅更新默认配置不中断当前进程，默认 True
+    :param wait_seconds: 当 restart_immediately=True 时等待新账号 OneBot 端口监听就绪的超时秒数（建议 15~60），默认 25
     """
     if not client.uses_local_runtime():
         return {'status': 'failed', 'error': '外部 OneBot URL 不支持管理本地 QQ 账号'}
@@ -159,13 +165,12 @@ async def login_new_qq_by_qrcode(
     wait_scan_seconds: int = 45
 ) -> dict[str, Any]:
     """
-    启动新 QQ 账号扫码登录流程（绑定新 QQ 号或当旧账号凭证过期需要重新扫码时使用）。
-    执行流程：
-    1. 自动停止当前后台 NapCat 进程并清空自动登录配置；
-    2. 启动扫码沙箱生成高清二维码图片 (`qrcode.png`)，并在屏幕上自动弹出该二维码供用户用手机 QQ 扫码；
-    3. 等待用户扫码成功后，自动为新 QQ 号生成 OneBot 11 (3000/3001) 端口配置，并自动转为后台常驻模式上线。
-    :param open_image: 是否自动在电脑屏幕上用图片查看器弹出二维码图片，默认 True
-    :param wait_scan_seconds: 等待用户手机扫码的最大秒数，默认 45 秒
+    启动全新 QQ 账号的二维码扫码登录流程，生成高清二维码图片 (`qrcode.png`) 等待手机 QQ 扫码，成功后自动写入 OneBot 11 端口配置并转为后台常驻运行。
+    适用场景：首次绑定新 QQ 号，或已有账号登录态过期需要重新手机扫码授权时调用。不适用与替代：若目标 QQ 号已在本地缓存列表且凭证有效，请勿重新扫码，应改用 `switch_qq_account` 免扫码秒级切换。
+    参数约束与交互：`open_image=True` 会在本机 Windows 桌面自动弹出二维码查看器；`wait_scan_seconds` 控制阻塞等待用户手机确认的最大秒数（超时未扫返回 `status='scan_timed_out'`）。
+    行为与副作用：会主动停止当前正在运行的本地 NapCat 进程并重置自动登录配置；前置要求本地 NapCat 已部署（未部署请先调用 `deploy_or_update_napcat`），成功时返回 `status='logged_in_and_configured'`、`new_uin` 及 `online_account`。
+    :param open_image: 生成二维码后是否立即调用系统默认图片查看器在桌面弹出显示，默认 True
+    :param wait_scan_seconds: 阻塞等待用户使用手机 QQ 扫描并确认登录的最大超时秒数（建议 30~120），默认 45
     """
     if not client.uses_local_runtime():
         return {'status': 'failed', 'error': '外部 OneBot URL 不支持本地扫码登录'}
@@ -195,8 +200,10 @@ async def get_login_qrcode_image(
     open_image: bool = True
 ) -> dict[str, Any]:
     """
-    查看本地最新的 NapCat 登录二维码图片路径 (`qrcode.png`)，并可选在电脑屏幕上直接打开展示该二维码。
-    :param open_image: 若二维码文件存在，是否立即在屏幕上打开图片查看器，默认 True
+    读取本地缓存的最新 NapCat 登录二维码图片路径 (`qrcode.png`)，并可选在桌面弹出展示该图片。
+    适用场景：当 `login_new_qq_by_qrcode` 已经生成二维码但用户关闭了图片窗口需要重新查看时调用。不适用与替代：本工具不会启动扫码进程或刷新过期二维码；如需发起新的扫码会话，请改用 `login_new_qq_by_qrcode`。
+    行为与返回：只读查询本地文件状态（`open_image=True` 时触发本地图片查看器）；文件存在返回 `status='ok'` 与 `qrcode_path`，不存在返回 `status='not_found'`。
+    :param open_image: 若本地二维码图片文件存在，是否在 Windows 桌面立即打开图片查看器展示，默认 True
     """
     if not client.uses_local_runtime():
         return {'status': 'not_found', 'error': '外部 OneBot URL 没有本地二维码缓存'}
@@ -229,10 +236,11 @@ async def start_napcat_service(
     wait_seconds: int = 25
 ) -> dict[str, Any]:
     """
-    启动本地 NapCat 后台服务进程并等待端口 (3000/3001) 就绪。
-    若服务已在运行则直接返回就绪状态。
-    :param uin: 指定要登录启动的 QQ 号 (留空则使用默认激活账号)
-    :param wait_seconds: 等待端口监听的最大秒数
+    启动本地 NapCatQQ 后台服务进程并等待 OneBot (3000/3001) 端口就绪，同时挂载后台 WebSocket 事件监听。
+    适用场景：当本地服务处于停止状态、需要以默认或指定已缓存账号拉起后台进程时调用。不适用与替代：若服务已在运行且需切换账号，请改用 `switch_qq_account`；若需强制重启卡死进程，请改用 `restart_napcat_service`。
+    行为与返回：幂等操作——若端口已在监听则直接返回 `status='already_running'` 而不重复拉起；新启动成功返回 `status='started'`，超时或未安装返回 `status='failed'`。
+    :param uin: 指定要自动登录的 5~11 位纯数字 QQ 号字符串；留空则使用本地配置中的当前默认账号
+    :param wait_seconds: 启动进程后轮询等待 OneBot HTTP 端口监听就绪的最大秒数，默认 25
     """
     res = await client.start_napcat_process(uin=uin, wait_seconds=wait_seconds)
     client.start_background_ws()
@@ -242,7 +250,9 @@ async def start_napcat_service(
 @registry.register()
 async def stop_napcat_service(client: NapCatClient) -> dict[str, Any]:
     """
-    安全停止当前后台运行的 NapCat 沙箱进程 (仅精准终止 napcat_runtime 下的进程，不影响系统其他 Node 服务)。
+    安全终止本地后台运行的 NapCatQQ 沙箱进程（严格校验进程可执行文件与入口路径，绝不误杀系统其他 Node.js 进程）。
+    适用场景：需要彻底下线当前 QQ 机器人、释放本地 3000/3001 端口或维护运行时目录时调用。不适用与替代：若希望重启服务或切换其他 QQ 号上线，请直接改用 `restart_napcat_service` 或 `switch_qq_account`。
+    行为与副作用：破坏性但幂等的进程终止操作——调用后当前 QQ 账号立即离线且实时消息监听中断，直至重新调用 `start_napcat_service`；返回被终止的 PID 列表 `stopped_processes` 与端口状态。
     """
     if not client.uses_local_runtime():
         return {'status': 'failed', 'error': '外部 OneBot URL 不能停止本地 NapCat'}
@@ -262,9 +272,11 @@ async def restart_napcat_service(
     wait_seconds: int = 25
 ) -> dict[str, Any]:
     """
-    强制重启本地 NapCat 后台服务进程（可指定要登录的 QQ 号）。
-    :param uin: 指定重启登录的 QQ 号 (可选，留空则使用当前默认账号)
-    :param wait_seconds: 等待端口监听就绪的秒数，默认 25
+    强制终止现有本地 NapCatQQ 进程并重新拉起后台服务，支持在重启时指定目标登录 QQ 号。
+    适用场景：当 NapCat 服务出现连接僵死、配置变更需重启生效时调用。不适用与替代：若是为了在多个已登录账号间正常切换，请优先使用语义更清晰的 `switch_qq_account`。
+    行为与副作用：会短暂中断现有连接并终止旧进程，随后等待最多 `wait_seconds` 秒恢复端口监听与 WebSocket 实时事件订阅；返回 `stopped_old_processes` 及重启结果 `start_result`。
+    :param uin: 重启后指定登录的 5~11 位纯数字 QQ 号字符串；留空则沿用当前默认激活账号
+    :param wait_seconds: 重启后等待 OneBot 端口监听就绪的最大超时秒数，默认 25
     """
     if not client.uses_local_runtime():
         return {'status': 'failed', 'error': '外部 OneBot URL 不能重启本地 NapCat'}

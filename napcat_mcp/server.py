@@ -365,7 +365,7 @@ def export_antigravity_schemas(target_dir: str) -> int:
     """
     os.makedirs(target_dir, exist_ok=True)
     count = 0
-    for tool in registry.list_tools():
+    for tool in registry.list_tools(include_all=True):
         t_name = tool["name"]
         params_schema = dict(tool["inputSchema"])
         params_schema["additionalProperties"] = False

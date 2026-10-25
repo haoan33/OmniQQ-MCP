@@ -1,33 +1,159 @@
 """
 NapCat MCP 工具注册表与 Schema 自动生成器
-将 Python 异步函数自动映射为符合 MCP 标准规范的 Tool 定义与 JSON Schema。
+将 Python 异步函数自动映射为符合 MCP 标准规范的 Tool 定义、Annotations 与 JSON Schema。
 """
 import inspect
+import os
 import types
 from typing import Any, Callable, Dict, List, Optional, Union, get_type_hints, get_origin, get_args
+
+# 默认暴露的 14 个正交核心工具（处于 MCP 3~15 最佳工具数区间，零职责重叠）
+# 其余 60 个细分具名工具仍保留在注册表中供 tools/call 直接调用，或通过 OMNIQQ_TOOL_PROFILE=full 全量暴露
+CORE_TOOL_NAMES: tuple[str, ...] = (
+    "check_napcat_environment",
+    "deploy_or_update_napcat",
+    "login_new_qq_by_qrcode",
+    "switch_qq_account",
+    "send_private_msg",
+    "send_group_msg",
+    "delete_msg",
+    "upload_private_file",
+    "upload_group_file",
+    "get_login_info",
+    "get_group_list",
+    "get_recent_messages",
+    "call_napcat_api",
+    "list_supported_napcat_actions",
+)
+
+DEFAULT_OUTPUT_SCHEMA: Dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "status": {
+            "type": "string",
+            "description": "执行状态标识，成功为 'ok'（或特定生命周期状态），失败为 'failed' 或 'error'"
+        },
+        "retcode": {
+            "type": "integer",
+            "description": "OneBot 11 响应状态码，0 表示成功，非 0 表示协议端或网络错误"
+        },
+        "data": {
+            "description": "接口返回的业务负载数据（对象或数组，具体字段依工具而定）"
+        },
+        "message": {
+            "type": "string",
+            "description": "状态说明或错误诊断详情"
+        }
+    },
+    "additionalProperties": True
+}
+
+_LOCAL_READONLY_TOOLS = {
+    "get_recent_messages",
+    "get_recent_notices_and_requests",
+    "list_supported_napcat_actions",
+    "get_login_qrcode_image",
+}
+
+_DESTRUCTIVE_TOOLS = {
+    "delete_msg",
+    "delete_essence_msg",
+    "delete_friend",
+    "delete_group_file",
+    "delete_group_folder",
+    "set_group_kick",
+    "set_group_leave",
+    "clear_recent_messages_buffer",
+    "stop_napcat_service",
+    "call_napcat_api",
+}
+
+_IDEMPOTENT_MUTATION_TOOLS = {
+    "clear_recent_messages_buffer",
+    "stop_napcat_service",
+    "start_napcat_service",
+    "switch_qq_account",
+    "mark_msg_as_read",
+    "set_essence_msg",
+    "set_msg_emoji_like",
+    "set_group_ban",
+    "set_group_whole_ban",
+    "set_group_admin",
+    "set_group_card",
+    "set_group_name",
+    "set_group_special_title",
+    "set_group_portrait",
+    "set_friend_remark",
+    "set_qq_profile",
+    "set_qq_avatar",
+    "set_self_longnick",
+    "set_online_status",
+}
 
 
 class ToolRegistry:
     """MCP 工具注册与分发中心"""
 
-    def __init__(self):
+    def __init__(self, default_include_all: Optional[bool] = None):
         self._tools: Dict[str, Dict[str, Any]] = {}
+        self.default_include_all: Optional[bool] = default_include_all
+
+    @staticmethod
+    def _clean_description(raw_doc: str) -> str:
+        """剥离 docstring 中的 :param 行，避免在工具主描述中与 inputSchema 重复"""
+        lines = []
+        for line in (raw_doc or "").splitlines():
+            if line.strip().startswith(":param "):
+                continue
+            lines.append(line.rstrip())
+        return "\n".join(lines).strip()
+
+    @staticmethod
+    def _infer_annotations(tool_name: str, explicit: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """根据工具语义生成符合 MCP 规范的 Tool Annotations"""
+        is_readonly = (
+            tool_name.startswith(("get_", "list_", "check_", "fetch_"))
+            or tool_name == "ocr_image"
+        )
+        is_destructive = tool_name in _DESTRUCTIVE_TOOLS
+        is_idempotent = is_readonly or (tool_name in _IDEMPOTENT_MUTATION_TOOLS)
+        is_open_world = tool_name not in _LOCAL_READONLY_TOOLS and tool_name != "clear_recent_messages_buffer"
+
+        annotations: Dict[str, Any] = {
+            "title": tool_name.replace("_", " ").title(),
+            "readOnlyHint": bool(is_readonly),
+            "destructiveHint": bool(is_destructive),
+            "idempotentHint": bool(is_idempotent),
+            "openWorldHint": bool(is_open_world),
+        }
+        if explicit:
+            annotations.update(explicit)
+        return annotations
 
     def register(
         self,
         name: Optional[str] = None,
         description: Optional[str] = None,
-        schema_override: Optional[Dict[str, Any]] = None
+        schema_override: Optional[Dict[str, Any]] = None,
+        annotations: Optional[Dict[str, Any]] = None,
+        output_schema: Optional[Dict[str, Any]] = None,
+        core: Optional[bool] = None,
     ):
         """装饰器：将异步函数注册为 MCP Tool"""
         def decorator(func: Callable):
             tool_name = name or func.__name__
-            tool_desc = (description or inspect.getdoc(func) or "").strip()
+            raw_doc = description or inspect.getdoc(func) or ""
+            tool_desc = self._clean_description(raw_doc)
             input_schema = schema_override or self._build_json_schema(func)
+            tool_annotations = self._infer_annotations(tool_name, annotations)
+            is_core = (tool_name in CORE_TOOL_NAMES) if core is None else bool(core)
             self._tools[tool_name] = {
                 "name": tool_name,
                 "description": tool_desc,
                 "inputSchema": input_schema,
+                "outputSchema": output_schema or dict(DEFAULT_OUTPUT_SCHEMA),
+                "annotations": tool_annotations,
+                "core": is_core,
                 "handler": func
             }
             return func
@@ -145,16 +271,33 @@ class ToolRegistry:
             for index, child in enumerate(value):
                 ToolRegistry.validate(child,schema.get('items',{}),f'{path}[{index}]')
 
-    def list_tools(self) -> List[Dict[str, Any]]:
+    def _should_include_all(self, include_all: Optional[bool] = None) -> bool:
+        if include_all is not None:
+            return bool(include_all)
+        if self.default_include_all is not None:
+            return bool(self.default_include_all)
+        profile = os.environ.get("OMNIQQ_TOOL_PROFILE", "core").strip().lower()
+        full_flag = os.environ.get("OMNIQQ_FULL_TOOLS", "").strip().lower()
+        return profile in ("full", "all") or full_flag in ("1", "true", "yes")
+
+    def list_tools(self, include_all: Optional[bool] = None) -> List[Dict[str, Any]]:
         """返回符合 MCP `tools/list` 标准响应格式的工具列表"""
-        return [
-            {
+        show_all = self._should_include_all(include_all)
+        result: List[Dict[str, Any]] = []
+        for info in self._tools.values():
+            if not show_all and not info.get("core", True):
+                continue
+            item: Dict[str, Any] = {
                 "name": info["name"],
                 "description": info["description"],
-                "inputSchema": info["inputSchema"]
+                "inputSchema": info["inputSchema"],
             }
-            for info in self._tools.values()
-        ]
+            if "outputSchema" in info:
+                item["outputSchema"] = info["outputSchema"]
+            if "annotations" in info:
+                item["annotations"] = info["annotations"]
+            result.append(item)
+        return result
 
     def get_tool(self, name: str) -> Optional[Dict[str, Any]]:
         return self._tools.get(name)

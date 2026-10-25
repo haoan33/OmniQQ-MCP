@@ -70,11 +70,13 @@ async def call_napcat_api(
     timeout: float = 30.0
 ) -> dict[str, Any]:
     """
-    万能底层接口透传工具：直接调用 NapCatQQ 支持的任意 OneBot 11 标准或扩展 Action (覆盖全部 144+ 项功能)。
-    当高层具名工具未涵盖某个特定冷门接口 (如群相册、群签到、语音转文字 fetch_ptt_text、AI声聊 send_group_ai_record、清理缓存 clean_cache 等) 时，使用此工具直接调用。
-    :param action: NapCat 接口名称 (例如 'send_group_sign', 'fetch_ptt_text', 'get_cookies' 等)
-    :param params: 传递给该接口的 JSON 参数字典 (例如 {"group_id": 123456})
-    :param timeout: 请求超时秒数，默认 30.0
+    调用 NapCatQQ 任意 OneBot 11 标准或扩展底层 Action（覆盖全部 144+ 项功能）的通用兜底透传工具。
+    适用场景：仅当核心专用工具未覆盖所需功能时使用（例如查询历史记录 `get_friend_msg_history`/`get_group_msg_history`、群管禁言踢人 `set_group_ban`/`set_group_kick`、文件下载与 OCR `download_file`/`ocr_image`、好友与资料管理 `get_friend_list`/`set_qq_profile`、群相册或打卡等）。不适用与替代：严禁使用本工具替代已暴露的核心专用工具（发送私聊/群聊请用 `send_private_msg`/`send_group_msg`，撤回请用 `delete_msg`，上传文件请用 `upload_private_file`/`upload_group_file`）；不确定 `action` 精确名称时，请先调用 `list_supported_napcat_actions` 检索。
+    参数约束与交互：`action` 必须为合法的 OneBot 11 / NapCat 端点名（不含前导斜杠 `/`）；`params` 为传给该端点的 JSON 键值字典，上传或下载大文件时建议将 `timeout` 调大至 120.0。
+    行为、权限与副作用：操作性质完全取决于所调用的 `action`——`get_*`/`fetch_*` 为只读查询，而 `delete_*`/`set_group_kick`/`set_group_leave` 属于不可逆破坏性操作且要求当前账号已在线并具备相应群主/管理员权限；返回标准 OneBot 响应字典 `{"status": "ok"|"failed", "retcode": int, "data": ...}`，未知 action 或参数错误时返回非 0 `retcode`。
+    :param action: 目标 OneBot 11 或 NapCat 扩展接口精确名称（可通过 `list_supported_napcat_actions` 查阅，如 'get_group_msg_history', 'set_group_ban', 'ocr_image'）
+    :param params: 传递给该接口的请求参数字典（字段依具体 action 而定，无参数接口传空字典 {} 或省略）
+    :param timeout: HTTP 请求最大等待超时秒数（常规接口默认 30.0，文件传输类接口建议 120.0）
     """
     return await client.call_api(action=action, params=params or {}, timeout=timeout)
 
@@ -85,8 +87,11 @@ async def list_supported_napcat_actions(
     category: str = "all"
 ) -> dict[str, Any]:
     """
-    列出 NapCatQQ 官方引擎支持的全部 140+ 个底层 Action 名称目录，方便在使用 call_napcat_api 前查阅精确的接口名。
-    :param category: 分类过滤: 'all' | 'messaging' | 'group_management' | 'files_and_media' | 'friends_and_account' | 'ai_and_system'
+    查询 NapCatQQ 引擎支持的全部 144+ 个底层 OneBot 11 与扩展 Action 名称分类目录。
+    适用场景：在准备调用 `call_napcat_api` 但不确定目标功能的精确 `action` 英文名称时，先调用本工具按分类查阅。不适用与替代：若所需操作已有直接对应的核心具名工具（如 `send_private_msg`、`send_group_msg`、`get_group_list` 等），则无需查阅本目录；本工具仅返回接口名称清单，真正执行接口调用请使用 `call_napcat_api`。
+    参数约束与交互：`category` 可按功能域筛选子集（如群管选 `'group_management'`，媒体选 `'files_and_media'`，系统与 AI 声聊选 `'ai_and_system'`），若传入未识别的分类名则自动回退返回 `'all'` 全量字典。
+    行为与返回：纯本地静态目录只读查询（无网络请求、无需登录在线、零副作用）；当 `category='all'` 时返回 `total_count` 与按分类组织的 `categories` 字典，指定单一分类时返回 `count` 与 `actions` 字符串数组。
+    :param category: 接口分类筛选枚举: 'all'（全部 5 大分类）、'messaging'（消息与互动）、'group_management'（群组管理与查询）、'files_and_media'（文件、相册与语音OCR）、'friends_and_account'（好友与个人资料）、'ai_and_system'（系统状态、凭证与AI声聊），默认 'all'
     """
     if category != "all" and category in NAPCAT_ALL_ACTIONS:
         return {
