@@ -88,7 +88,7 @@ async def delete_msg(
 ) -> dict[str, Any]:
     """
     从私聊或群聊会话中永久撤回指定消息 (OneBot 11: delete_msg)。
-    适用场景：发错消息需紧急撤回，或作为群主/群管理员撤回群成员的违规发言。不适用与替代：若仅需将群精华消息移出精华列表（而不撤回原消息），请通过 `call_napcat_api` 调用 `delete_essence_msg`；若需删除群文件，请调用 `delete_group_file`。
+    适用场景：发错消息需紧急撤回，或作为群主/群管理员撤回群成员的违规发言。不适用与替代：若仅需将群精华消息移出精华列表或删除群共享文件，请通过 `call_napcat_api` 调用 `delete_essence_msg` 或 `delete_group_file`。
     参数约束：传入的 `message_id` 必须来自 `send_private_msg`、`send_group_msg` 的返回值或 `get_recent_messages` 消息记录中的有效整数 ID。
     行为与权限限制：不可逆的破坏性操作（撤回后消息无法恢复）；撤回自身消息受 QQ 平台 2 分钟时效限制，撤回他人群消息要求当前账号在该群具备管理员或群主权限，超时或权限不足将返回非 0 `retcode`。
     :param message_id: 目标消息的唯一整数 ID（由发送接口返回或从近期消息列表中获取）

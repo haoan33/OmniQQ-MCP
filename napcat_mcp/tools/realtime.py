@@ -17,7 +17,7 @@ async def get_recent_messages(
 ) -> dict[str, Any]:
     """
     读取 MCP 服务后台通过 WebSocket 实时监听并保存在本地环形内存缓存池（上限 200 条，按登录账号隔离）中的近期 QQ 消息列表。
-    适用场景：快速轮询或按条件检索服务运行期间实时收到的最新私聊与群聊消息。不适用与替代：若需查询 MCP 启动之前的历史聊天记录或向更早页码翻页，请通过 `call_napcat_api` 调用 `get_friend_msg_history` 或 `get_group_msg_history`；若需查看加群/加好友审批请求或群撤回通知，请调用 `get_recent_notices_and_requests`。
+    适用场景：快速轮询或按条件检索服务运行期间实时收到的最新私聊与群聊消息。不适用与替代：若需查询 MCP 启动之前的历史聊天记录、向更早页码翻页或拉取群系统通知（如加群审批/管理员变动），请通过 `call_napcat_api` 调用 `get_friend_msg_history`、`get_group_msg_history` 或 `get_group_system_msg`。
     参数约束与交互：当指定 `target_id` 时，若 `chat_type='group'` 则按群号过滤，若 `chat_type='private'` 则按发送者 QQ 号过滤，若 `chat_type='all'` 则同时匹配群号或 QQ 号；`keyword` 对净化后的消息文本 `clean_text` 与发送者昵称做大小写不敏感子串匹配。
     行为与返回：纯内存只读操作（零外部网络延迟，不修改缓存状态）；返回 `ws_connected`、`count` 及 `messages` 数组（每项含 `message_id`, `chat_type`, `user_id`, `group_id`, `sender_name`, `clean_text`, `time`）。
     :param count: 返回的最大最新消息条数（范围 1~200，默认 20）

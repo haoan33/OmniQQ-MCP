@@ -133,6 +133,10 @@ class TestNapCatMCP(unittest.IsolatedAsyncioTestCase):
             "set_group_ban",
         }.issubset(all_names))
 
+        for t in core_tools:
+            self.assertNotIn("start_napcat_service", t["description"])
+            self.assertNotIn("get_recent_notices_and_requests", t["description"])
+
         for t in all_tools:
             self.assertTrue(t["description"], f"Tool {t['name']} 缺少描述")
             self.assertNotIn(":param ", t["description"], f"Tool {t['name']} 描述中残留重复的 :param 行")

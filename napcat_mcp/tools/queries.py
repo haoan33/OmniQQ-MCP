@@ -25,7 +25,7 @@ async def get_group_list(
 ) -> dict[str, Any]:
     """
     获取当前登录 QQ 账号已加入的全部 QQ 群列表，包含每群的 `group_id`、`group_name`、`member_count` 与 `max_member_count` (OneBot 11: get_group_list)。
-    适用场景：在发送群消息或上传群文件前，根据群名称查找对应的 `group_id` 或遍历已加入的群聊。不适用与替代：若已知具体 `group_id` 仅需查询该单群的详细资料，请通过 `call_napcat_api` 调用 `get_group_info`；若需查询好友列表，请调用 `get_friend_list`。
+    适用场景：在发送群消息或上传群文件前，根据群名称查找对应的 `group_id` 或遍历已加入的群聊。不适用与替代：若已知具体 `group_id` 仅需查询该单群的详细资料或需查询好友列表，请通过 `call_napcat_api` 调用 `get_group_info` 或 `get_friend_list`。
     参数约束与行为：`no_cache=True`（默认）会强制向 QQ 服务器拉取最新群列表以确保新加入的群立即可见；纯只读无副作用操作，成功在 `data` 中返回群信息字典数组。
     :param no_cache: 为 True 时绕过本地缓存强制从服务器刷新最新群列表，为 False 时优先使用缓存，默认 True
     """

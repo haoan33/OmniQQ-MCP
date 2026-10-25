@@ -161,7 +161,7 @@ async def check_napcat_environment(live_version_info: Optional[dict[str, Any]] =
         status = "installed_not_running"
         advice = (
             "NapCat 运行时已安装，但服务尚未启动（端口 3000/3001 未监听）。"
-            "可调用 `start_napcat_service()` 自动拉起后台服务，或调用任意控制工具触发自动自愈启动。"
+            "可调用 `switch_qq_account`（已缓存账号）或 `login_new_qq_by_qrcode`（新账号扫码）拉起服务，或调用 `get_login_info` 等核心工具触发自动自愈启动。"
         )
     else:
         status = "ready"
@@ -381,5 +381,5 @@ async def deploy_or_update_napcat(
         "onebot_configured_for_uin": uin if config_ok else None,
         "backup_directory": backup_directory,
         "health_check": health,
-        "message": "NapCat 运行时已成功部署/更新！现在可以调用 `start_napcat_service` 启动服务。"
+        "message": "NapCat 运行时已成功部署/更新！现在可以调用 `switch_qq_account` 或 `login_new_qq_by_qrcode` 登录并启动服务。"
     }

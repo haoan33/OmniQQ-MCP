@@ -239,7 +239,7 @@ class NapCatClient:
                 "retcode": -100,
                 "action": action_clean,
                 "error": f"无法连接到 NapCat HTTP 服务 ({self.http_url}): {e}",
-                "advice": "请确认 NapCat 已启动并登录 QQ，或调用 start_napcat_service / check_napcat_environment。"
+                "advice": "请确认 NapCat 已启动并登录 QQ，或调用 check_napcat_environment 诊断环境、使用 switch_qq_account / login_new_qq_by_qrcode 启动登录。"
             }
         except asyncio.TimeoutError:
             return {

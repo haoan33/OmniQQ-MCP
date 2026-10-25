@@ -44,7 +44,7 @@ async def upload_group_file(
     """
     将本机磁盘上的文件上传至指定 QQ 群的群文件共享空间 (NapCat OneBot 11: upload_group_file)。
     适用场景：向 QQ 群发布共享资料、汇总表或通知附件。不适用与替代：若需将文件单独私发给某个好友，请改用 `upload_private_file`；若仅需在群内发送文字通知，请改用 `send_group_msg`。
-    参数约束与交互：`file_path` 必须为本机已存在的绝对路径；省略 `folder` 时默认上传至群文件根目录，若指定 `folder` 则须传入通过 `get_group_root_files` 查询到的有效群文件夹 ID。
+    参数约束与交互：`file_path` 必须为本机已存在的绝对路径；省略 `folder` 时默认上传至群文件根目录，若指定 `folder` 则须传入通过 `call_napcat_api(action='get_group_root_files')` 查询到的有效群文件夹 ID。
     行为与返回：非幂等群文件创建操作（默认超时 120 秒，同名文件通常会在群文件列表中产生新条目）；前置要求当前账号已加入目标群且群文件空间未满、具备上传权限，成功返回 `status='ok'`。
     :param group_id: 目标 QQ 群号（正整数，须为已加入的群聊）
     :param file_path: 待上传本地文件的完整绝对路径（文件必须真实存在且可读）

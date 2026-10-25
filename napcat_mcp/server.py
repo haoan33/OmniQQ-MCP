@@ -158,8 +158,8 @@ class NapCatMCPServer:
                                         "1. 首选调用 `check_napcat_environment` 或 `get_login_info` 确认连接状态；\n"
                                         "2. 若环境未安装，询问用户许可后调用 `deploy_or_update_napcat(confirmed=True)`；\n"
                                         "3. 支持 `login_new_qq_by_qrcode` 扫码登录新账号，或 `switch_qq_account` 免扫码热切换已保存账号；\n"
-                                        "4. 查看新消息使用 `get_recent_messages`，查历史使用 `get_friend_msg_history` / `get_group_msg_history`；\n"
-                                        "5. 任何未单独列出的扩展接口均可通过 `call_napcat_api` 直接调用。"
+                                        "4. 查看新消息使用 `get_recent_messages`，查历史记录请通过 `call_napcat_api` 调用 `get_friend_msg_history` / `get_group_msg_history`；\n"
+                                        "5. 任何未单独列出的扩展接口均可通过 `call_napcat_api`（配合 `list_supported_napcat_actions`）直接调用。"
                                     )
                                 }
                             }
@@ -386,7 +386,7 @@ def export_antigravity_schemas(target_dir: str) -> int:
         "## 核心建议\n"
         "- **环境诊断与自动部署**：首次使用或连接异常时，优先调用 `check_napcat_environment`。若未安装，征得用户同意后调用 `deploy_or_update_napcat(confirmed=True)`。\n"
         "- **实时消息获取**：调用 `get_recent_messages` 获取后台 WebSocket 实时监听到的最新私聊/群聊消息。\n"
-        "- **全量接口调用**：除 46 个高频具名工具外，可通过 `call_napcat_api` 调用全部 144+ 项 NapCat 原生接口。\n"
+        "- **全量接口调用**：除 14 个核心具名工具外，可通过 `call_napcat_api`（配合 `list_supported_napcat_actions`）调用全部 144+ 项 NapCat 原生接口。\n"
     )
     with open(instructions_path, "w", encoding="utf-8") as f:
         f.write(instructions_content)
