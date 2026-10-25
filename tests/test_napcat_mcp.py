@@ -84,21 +84,24 @@ class TestNapCatMCP(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ping_resp["result"], {})
 
     async def test_02_tools_list_and_schemas(self):
-        """验证默认 14 个核心工具与全量 74 个工具的注册、Annotations、OutputSchema 及 JSON Schema 合法性"""
+        """验证默认 19 个核心与本地工具及全量 74 个工具的注册、Annotations、OutputSchema 及 JSON Schema 合法性"""
         resp = await self.server.handle_request({
             "jsonrpc": "2.0",
             "id": 3,
             "method": "tools/list"
         })
         core_tools = resp["result"]["tools"]
-        self.assertEqual(len(core_tools), 14)
+        self.assertEqual(len(core_tools), 19)
 
         core_names = {t["name"] for t in core_tools}
         expected_core = {
             "check_napcat_environment",
             "deploy_or_update_napcat",
+            "list_qq_accounts",
             "login_new_qq_by_qrcode",
+            "get_login_qrcode_image",
             "switch_qq_account",
+            "stop_napcat_service",
             "send_private_msg",
             "send_group_msg",
             "delete_msg",
@@ -107,6 +110,8 @@ class TestNapCatMCP(unittest.IsolatedAsyncioTestCase):
             "get_login_info",
             "get_group_list",
             "get_recent_messages",
+            "get_recent_notices_and_requests",
+            "clear_recent_messages_buffer",
             "call_napcat_api",
             "list_supported_napcat_actions"
         }
@@ -135,7 +140,7 @@ class TestNapCatMCP(unittest.IsolatedAsyncioTestCase):
 
         for t in core_tools:
             self.assertNotIn("start_napcat_service", t["description"])
-            self.assertNotIn("get_recent_notices_and_requests", t["description"])
+            self.assertNotIn("restart_napcat_service", t["description"])
 
         for t in all_tools:
             self.assertTrue(t["description"], f"Tool {t['name']} 缺少描述")
@@ -212,6 +217,31 @@ class TestNapCatMCP(unittest.IsolatedAsyncioTestCase):
         self.assertGreaterEqual(payload["total_count"], 125)
         self.assertIn("messaging", payload["categories"])
         self.assertIn("group_management", payload["categories"])
+
+        # 验证 call_napcat_api 遇到未知 action 时返回 list_supported_napcat_actions 引导
+        with patch.object(
+            self.server.client,
+            "call_api",
+            AsyncMock(return_value={
+                "status": "failed",
+                "retcode": 1404,
+                "data": None,
+                "message": "不支持的Api no_such_action_v2",
+                "wording": "不支持的Api no_such_action_v2",
+            })
+        ):
+            bad_resp = await self.server.handle_request({
+                "jsonrpc": "2.0",
+                "id": 71,
+                "method": "tools/call",
+                "params": {
+                    "name": "call_napcat_api",
+                    "arguments": {"action": "no_such_action_v2"}
+                }
+            })
+        bad_payload = json.loads(bad_resp["result"]["content"][0]["text"])
+        self.assertIn("list_supported_napcat_actions", bad_payload.get("advice", ""))
+        self.assertIn("list_supported_napcat_actions", bad_payload.get("message", ""))
 
     async def test_06_message_buffer_and_hooks(self):
         """验证实时消息缓存池、CQ码净化、条件过滤与事件钩子机制"""

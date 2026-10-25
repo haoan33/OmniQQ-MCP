@@ -62,6 +62,21 @@ NAPCAT_ALL_ACTIONS = {
 }
 
 
+_LOCAL_MCP_PASSTHROUGH_TOOLS = {
+    "start_napcat_service",
+    "stop_napcat_service",
+    "restart_napcat_service",
+    "list_qq_accounts",
+    "get_login_qrcode_image",
+    "get_recent_notices_and_requests",
+    "clear_recent_messages_buffer",
+}
+
+_ALL_KNOWN_ONEBOT_ACTIONS = {
+    act for acts in NAPCAT_ALL_ACTIONS.values() for act in acts
+}
+
+
 @registry.register()
 async def call_napcat_api(
     client: NapCatClient,
@@ -73,12 +88,37 @@ async def call_napcat_api(
     调用 NapCatQQ 任意 OneBot 11 标准或扩展底层 Action（覆盖全部 144+ 项功能）的通用兜底透传工具。
     适用场景：仅当核心专用工具未覆盖所需功能时使用（例如查询历史记录 `get_friend_msg_history`/`get_group_msg_history`、群管禁言踢人 `set_group_ban`/`set_group_kick`、文件下载与 OCR `download_file`/`ocr_image`、好友与资料管理 `get_friend_list`/`set_qq_profile`、群相册或打卡等）。不适用与替代：严禁使用本工具替代已暴露的核心专用工具（发送私聊/群聊请用 `send_private_msg`/`send_group_msg`，撤回请用 `delete_msg`，上传文件请用 `upload_private_file`/`upload_group_file`）；不确定 `action` 精确名称时，请先调用 `list_supported_napcat_actions` 检索。
     参数约束与交互：`action` 必须为合法的 OneBot 11 / NapCat 端点名（不含前导斜杠 `/`）；`params` 为传给该端点的 JSON 键值字典，上传或下载大文件时建议将 `timeout` 调大至 120.0。
-    行为、权限与副作用：操作性质完全取决于所调用的 `action`——`get_*`/`fetch_*` 为只读查询，而 `delete_*`/`set_group_kick`/`set_group_leave` 属于不可逆破坏性操作且要求当前账号已在线并具备相应群主/管理员权限；返回标准 OneBot 响应字典 `{"status": "ok"|"failed", "retcode": int, "data": ...}`，未知 action 或参数错误时返回非 0 `retcode`。
+    行为、权限与副作用：操作性质完全取决于所调用的 `action`——`get_*`/`fetch_*` 为只读查询，而 `delete_*`/`set_group_kick`/`set_group_leave` 属于不可逆破坏性操作且要求当前账号已在线并具备相应群主/管理员权限；返回标准 OneBot 响应字典 `{"status": "ok"|"failed", "retcode": int, "data": ...}`，未知 action 或参数错误时返回非 0 `retcode` 并提示调用 `list_supported_napcat_actions`。
     :param action: 目标 OneBot 11 或 NapCat 扩展接口精确名称（可通过 `list_supported_napcat_actions` 查阅，如 'get_group_msg_history', 'set_group_ban', 'ocr_image'）
     :param params: 传递给该接口的请求参数字典（字段依具体 action 而定，无参数接口传空字典 {} 或省略）
     :param timeout: HTTP 请求最大等待超时秒数（常规接口默认 30.0，文件传输类接口建议 120.0）
     """
-    return await client.call_api(action=action, params=params or {}, timeout=timeout)
+    action_clean = str(action or "").strip().lstrip("/")
+    if action_clean in _LOCAL_MCP_PASSTHROUGH_TOOLS and action_clean in registry.tools_map:
+        handler = registry.tools_map[action_clean]["handler"]
+        return await handler(client=client, **(params or {}))
+
+    res = await client.call_api(action=action_clean, params=params or {}, timeout=timeout)
+    if isinstance(res, dict) and (res.get("status") == "failed" or res.get("retcode", 0) not in (0, None)):
+        hint = "可先调用 list_supported_napcat_actions 查询接口名。"
+        msg_text = f"{res.get('message', '')} {res.get('wording', '')} {res.get('error', '')}"
+        is_unknown_action = (
+            action_clean not in _ALL_KNOWN_ONEBOT_ACTIONS
+            or "不支持" in msg_text
+            or "not found" in msg_text.lower()
+            or "unknown" in msg_text.lower()
+            or res.get("retcode") in (404, 1404)
+        )
+        if is_unknown_action:
+            res = dict(res)
+            res.setdefault("advice", f"未知或不支持的接口 '{action_clean}'，{hint}")
+            for field in ("message", "wording", "error"):
+                if isinstance(res.get(field), str) and "list_supported_napcat_actions" not in res[field]:
+                    res[field] = f"{res[field]}（{hint}）"
+        else:
+            res = dict(res)
+            res.setdefault("advice", hint)
+    return res
 
 
 @registry.register()

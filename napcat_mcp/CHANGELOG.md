@@ -4,7 +4,7 @@
 
 ### Added
 - Standard MCP Tool `annotations` (`title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) and `outputSchema` across all registered tools.
-- Dual tool-profile support (`OMNIQQ_TOOL_PROFILE=core` vs `full`): default `tools/list` exposes 14 orthogonal core tools within the recommended 3–15 MCP range, while `tools/call` and `OMNIQQ_TOOL_PROFILE=full` retain full access to all 74 named tools.
+- Dual tool-profile support (`OMNIQQ_TOOL_PROFILE=core` vs `full`): default `tools/list` exposes 19 orthogonal core & local tools (14 high-frequency core tools + 5 pure local runtime/buffer tools without OneBot HTTP equivalents), while `tools/call` and `OMNIQQ_TOOL_PROFILE=full` retain full access to all 74 named tools.
 
 ### Changed
 - Stripped duplicate `:param` lines from tool primary `description` strings so parameter definitions live cleanly in `inputSchema` while descriptions focus on parameter constraints, interactions, and usage boundaries.

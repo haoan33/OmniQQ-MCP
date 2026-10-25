@@ -251,8 +251,8 @@ async def start_napcat_service(
 async def stop_napcat_service(client: NapCatClient) -> dict[str, Any]:
     """
     安全终止本地后台运行的 NapCatQQ 沙箱进程（严格校验进程可执行文件与入口路径，绝不误杀系统其他 Node.js 进程）。
-    适用场景：需要彻底下线当前 QQ 机器人、释放本地 3000/3001 端口或维护运行时目录时调用。不适用与替代：若希望重启服务或切换其他 QQ 号上线，请直接改用 `restart_napcat_service` 或 `switch_qq_account`。
-    行为与副作用：破坏性但幂等的进程终止操作——调用后当前 QQ 账号立即离线且实时消息监听中断，直至重新调用 `start_napcat_service`；返回被终止的 PID 列表 `stopped_processes` 与端口状态。
+    适用场景：需要彻底下线当前 QQ 机器人、释放本地 3000/3001 端口或维护运行时目录时调用。不适用与替代：若希望重启服务或切换其他已缓存 QQ 号上线，请直接改用 `switch_qq_account`。
+    行为与副作用：破坏性但幂等的进程终止操作——调用后当前 QQ 账号立即离线且实时消息监听中断，直至重新调用 `switch_qq_account`、`login_new_qq_by_qrcode` 或任意触发自动自愈的核心工具；返回被终止的 PID 列表 `stopped_processes` 与端口状态。
     """
     if not client.uses_local_runtime():
         return {'status': 'failed', 'error': '外部 OneBot URL 不能停止本地 NapCat'}

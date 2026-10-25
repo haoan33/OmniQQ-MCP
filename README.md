@@ -114,7 +114,7 @@ python -m pip install -r requirements.txt
 更新全部 MCP 宿主使用的源码或安装包后，重启 MCP 进程以加载新版本。新安装的运行时、日志、账号选择和 Token 默认位于 `%LOCALAPPDATA%\OmniQQ-MCP`；已有 `napcat_runtime` 会继续使用。
 
 ### v1.2.0 (2026-10-25)
-- **核心工具精简与全量兼容 (`OMNIQQ_TOOL_PROFILE`)**：默认 `tools/list` 暴露 14 个正交核心工具（符合 MCP 3~15 最佳区间），`tools/call` 仍支持直接调用全部 74 项具名工具，设置 `OMNIQQ_TOOL_PROFILE=full` 可全量列出。
+- **核心工具精简与全量兼容 (`OMNIQQ_TOOL_PROFILE`)**：默认 `tools/list` 暴露 19 个核心与本地工具（14 个高频核心工具 + 5 个无 OneBot 等价接口的纯本地工具），`tools/call` 仍支持直接调用全部 74 项具名工具，设置 `OMNIQQ_TOOL_PROFILE=full` 可全量列出。
 - **标准注解与返回结构**：为全部工具补齐 MCP `annotations` 与 `outputSchema`，剥离主描述中重复的 `:param` 行并补全使用场景、权限要求与副作用说明。
 
 完整历史见 [CHANGELOG.md](./CHANGELOG.md)，兼容性和回滚说明见 [可靠性说明](docs/RELIABILITY_REVIEW.md)。
