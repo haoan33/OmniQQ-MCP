@@ -289,7 +289,7 @@ def clear_auto_login_account() -> bool:
 
 def kill_qq_processes() -> int:
     """
-    检查系统是否正在运行独立 QQ 客户端进程 (QQ.exe)，若运行则结束该进程，
+    检查系统是否正在运行独立 QQ 客户端进程 (QQ.exe / QQKit.exe)，若运行则结束该进程树，
     防止与 NapCat 服务产生同号互踢或数据库文件锁冲突。返回终止的进程数量。
     """
     killed_count = 0
@@ -299,7 +299,7 @@ def kill_qq_processes() -> int:
             try:
                 p_name = (proc.info.get("name") or "").lower()
                 exe_base = os.path.basename(proc.info.get("exe") or "").lower()
-                if p_name in ("qq.exe", "qq") or exe_base == "qq.exe":
+                if p_name in ("qq.exe", "qq", "qqkit.exe") or exe_base in ("qq.exe", "qqkit.exe"):
                     proc.kill()
                     killed_count += 1
             except (psutil.NoSuchProcess, psutil.AccessDenied):
