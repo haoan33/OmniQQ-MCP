@@ -11,6 +11,7 @@ import subprocess
 import queue
 import threading
 import tempfile
+import shutil
 from pathlib import Path
 from typing import Any, Optional
 from .token_store import ensure_onebot_token
@@ -28,7 +29,50 @@ NODE_EXE = os.path.join(SHELL_NODE_DIR, "node.exe")
 INDEX_JS = os.path.join(SHELL_NODE_DIR, "index.js")
 NAPCAT_CONFIG_DIR = os.path.join(SHELL_NODE_DIR, "napcat", "config")
 QR_CACHE_IMAGE = os.path.join(SHELL_NODE_DIR, "napcat", "cache", "qrcode.png")
+DESKTOP_QR_FILENAME = "qq_login_qrcode.png"
 _legacy_account = os.path.join(PROJECT_ROOT, 'current_account.txt')
+
+
+def get_desktop_dir() -> str:
+    """获取当前系统的桌面目录路径（优先使用环境变量或 D:\\Desktop / Windows Shell Desktop）"""
+    env_desktop = os.environ.get("OMNIQQ_DESKTOP_DIR")
+    if env_desktop:
+        return os.path.abspath(env_desktop)
+    if os.name == "nt":
+        if os.path.isdir(r"D:\Desktop"):
+            return r"D:\Desktop"
+        try:
+            import winreg
+            with winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders"
+            ) as key:
+                val, _ = winreg.QueryValueEx(key, "Desktop")
+                expanded = os.path.expandvars(str(val))
+                if os.path.isdir(expanded):
+                    return expanded
+        except Exception:
+            pass
+    return os.path.join(str(Path.home()), "Desktop")
+
+
+def export_qrcode_to_desktop(source_path: Optional[str] = None) -> Optional[str]:
+    """将 NapCat 生成的登录二维码图片复制到桌面并返回桌面文件绝对路径"""
+    src = source_path or QR_CACHE_IMAGE
+    if not (src and os.path.exists(src)):
+        return None
+    try:
+        if os.path.getsize(src) <= 0:
+            return None
+        desktop_dir = get_desktop_dir()
+        os.makedirs(desktop_dir, exist_ok=True)
+        dest_path = os.path.join(desktop_dir, DESKTOP_QR_FILENAME)
+        if os.path.normcase(os.path.abspath(src)) != os.path.normcase(os.path.abspath(dest_path)):
+            shutil.copy2(src, dest_path)
+        return dest_path
+    except Exception as e:
+        logger.warning(f"复制二维码图片到桌面失败: {e}")
+        return src
 CURRENT_ACCOUNT_FILE = os.environ.get('OMNIQQ_CURRENT_ACCOUNT_FILE') or os.path.join(USER_DATA_DIR, 'current_account.txt')
 LOCAL_RELEASE_ZIP = os.path.join(RUNTIME_DIR, "NapCat.Shell.Windows.Node.zip")
 
@@ -243,12 +287,39 @@ def clear_auto_login_account() -> bool:
         return False
 
 
-def kill_napcat_processes() -> int:
+def kill_qq_processes() -> int:
+    """
+    检查系统是否正在运行独立 QQ 客户端进程 (QQ.exe)，若运行则结束该进程，
+    防止与 NapCat 服务产生同号互踢或数据库文件锁冲突。返回终止的进程数量。
+    """
+    killed_count = 0
+    try:
+        import psutil
+        for proc in psutil.process_iter(["pid", "name", "exe"]):
+            try:
+                p_name = (proc.info.get("name") or "").lower()
+                exe_base = os.path.basename(proc.info.get("exe") or "").lower()
+                if p_name in ("qq.exe", "qq") or exe_base == "qq.exe":
+                    proc.kill()
+                    killed_count += 1
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+    except ImportError:
+        raise RuntimeError("缺少 psutil，无法安全检查或终止 QQ 进程")
+
+    if killed_count > 0:
+        time.sleep(1.0)
+    return killed_count
+
+
+def kill_napcat_processes(kill_qq: bool = False) -> int:
     """
     精准停止后台运行中的 NapCat 沙箱进程 (仅终止路径位于 shell_node 下的 node.exe，绝不误杀系统其他 node 进程)
     返回终止的进程数量。
     """
     killed_count = 0
+    if kill_qq:
+        killed_count += kill_qq_processes()
     try:
         import psutil
         target_exe = os.path.normcase(os.path.abspath(NODE_EXE))
@@ -295,7 +366,7 @@ def start_qrcode_login_session(
         }
 
     before_accounts = set(get_available_accounts())
-    kill_napcat_processes()
+    kill_napcat_processes(kill_qq=True)
     clear_auto_login_account()
 
     # 清理旧二维码文件以便准确检测新生成的二维码
@@ -316,6 +387,7 @@ def start_qrcode_login_session(
     )
 
     qr_opened = False
+    desktop_qr_path: Optional[str] = None
     logged_in_uin: Optional[str] = None
     start_ts = time.time()
     output_lines = queue.Queue(maxsize=1000)
@@ -334,12 +406,13 @@ def start_qrcode_login_session(
             if proc.poll() is not None:
                 break
 
-            # 检测二维码文件生成
+            # 检测二维码文件生成并复制到桌面
             if not qr_opened and os.path.exists(QR_CACHE_IMAGE) and os.path.getsize(QR_CACHE_IMAGE) > 100:
                 qr_opened = True
+                desktop_qr_path = export_qrcode_to_desktop(QR_CACHE_IMAGE)
                 if open_image and os.name == "nt":
                     try:
-                        os.startfile(QR_CACHE_IMAGE)
+                        os.startfile(desktop_qr_path or QR_CACHE_IMAGE)
                     except Exception:
                         pass
 
@@ -351,9 +424,10 @@ def start_qrcode_login_session(
                 if "二维码已保存到" in line and not qr_opened:
                     if os.path.exists(QR_CACHE_IMAGE):
                         qr_opened = True
+                        desktop_qr_path = export_qrcode_to_desktop(QR_CACHE_IMAGE)
                         if open_image and os.name == "nt":
                             try:
-                                os.startfile(QR_CACHE_IMAGE)
+                                os.startfile(desktop_qr_path or QR_CACHE_IMAGE)
                             except Exception:
                                 pass
 
@@ -392,7 +466,8 @@ def start_qrcode_login_session(
             return {
                 "status": "logged_in_and_configured",
                 "new_uin": target_uin,
-                "qrcode_path": QR_CACHE_IMAGE,
+                "qrcode_path": desktop_qr_path or QR_CACHE_IMAGE,
+                "desktop_qrcode_path": desktop_qr_path,
                 "available_accounts": get_available_accounts(),
                 "message": f"扫码登录成功！已绑定新 QQ 账号 {target_uin} 并配置好 OneBot 11 端口，正在启动后台常驻服务。"
             }
@@ -404,14 +479,18 @@ def start_qrcode_login_session(
         except Exception:
             pass
 
+        if not desktop_qr_path and os.path.exists(QR_CACHE_IMAGE):
+            desktop_qr_path = export_qrcode_to_desktop(QR_CACHE_IMAGE)
+        display_qr = desktop_qr_path or (QR_CACHE_IMAGE if os.path.exists(QR_CACHE_IMAGE) else None)
         return {
             "status": "scan_timed_out",
             "qrcode_generated": os.path.exists(QR_CACHE_IMAGE),
-            "qrcode_path": QR_CACHE_IMAGE if os.path.exists(QR_CACHE_IMAGE) else None,
+            "qrcode_path": display_qr,
+            "desktop_qrcode_path": desktop_qr_path,
             "qrcode_opened_on_screen": qr_opened,
             "message": (
-                f"二维码已生成 ({QR_CACHE_IMAGE}) 并在屏幕弹出，但在 {wait_scan_seconds} 秒内尚未检测到扫码完成。"
-                "该登录会话已关闭，原二维码不能继续登录，请重新调用 `login_new_qq_by_qrcode` 生成二维码。"
+                f"二维码已生成并保存到桌面 ({display_qr})，但在 {wait_scan_seconds} 秒内尚未检测到扫码完成。"
+                "请重新调用 `login_new_qq_by_qrcode` 生成新二维码并打开桌面上的二维码图片扫描。"
             )
         }
     except Exception as e:

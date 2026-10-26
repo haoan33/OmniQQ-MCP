@@ -84,14 +84,14 @@ class TestNapCatMCP(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ping_resp["result"], {})
 
     async def test_02_tools_list_and_schemas(self):
-        """验证默认 19 个核心与本地工具及全量 74 个工具的注册、Annotations、OutputSchema 及 JSON Schema 合法性"""
+        """验证默认 20 个核心与本地工具及全量 74 个工具的注册、Annotations、OutputSchema 及 JSON Schema 合法性"""
         resp = await self.server.handle_request({
             "jsonrpc": "2.0",
             "id": 3,
             "method": "tools/list"
         })
         core_tools = resp["result"]["tools"]
-        self.assertEqual(len(core_tools), 19)
+        self.assertEqual(len(core_tools), 20)
 
         core_names = {t["name"] for t in core_tools}
         expected_core = {
@@ -101,6 +101,7 @@ class TestNapCatMCP(unittest.IsolatedAsyncioTestCase):
             "login_new_qq_by_qrcode",
             "get_login_qrcode_image",
             "switch_qq_account",
+            "start_napcat_service",
             "stop_napcat_service",
             "send_private_msg",
             "send_group_msg",
@@ -139,7 +140,6 @@ class TestNapCatMCP(unittest.IsolatedAsyncioTestCase):
         }.issubset(all_names))
 
         for t in core_tools:
-            self.assertNotIn("start_napcat_service", t["description"])
             self.assertNotIn("restart_napcat_service", t["description"])
 
         for t in all_tools:
@@ -242,6 +242,61 @@ class TestNapCatMCP(unittest.IsolatedAsyncioTestCase):
         bad_payload = json.loads(bad_resp["result"]["content"][0]["text"])
         self.assertIn("list_supported_napcat_actions", bad_payload.get("advice", ""))
         self.assertIn("list_supported_napcat_actions", bad_payload.get("message", ""))
+
+    async def test_05b_kill_qq_before_start_and_export_qrcode_to_desktop(self):
+        """验证启动 NapCat 前自动结束 QQ.exe 进程，且检测到需要扫码登录时将二维码复制到桌面并提示用户"""
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import Mock
+        from napcat_mcp.config import kill_qq_processes, DESKTOP_QR_FILENAME
+
+        qq_proc = Mock(info={"pid": 9999, "name": "QQ.exe", "exe": r"C:\Program Files\Tencent\QQNT\QQ.exe"})
+        other_proc = Mock(info={"pid": 8888, "name": "chrome.exe", "exe": r"C:\Program Files\Google\Chrome\Application\chrome.exe"})
+        with patch("psutil.process_iter", return_value=[qq_proc, other_proc]), \
+             patch("napcat_mcp.config.time.sleep"):
+            self.assertEqual(kill_qq_processes(), 1)
+        qq_proc.kill.assert_called_once()
+        other_proc.kill.assert_not_called()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            fake_node = tmp_path / "node.exe"
+            fake_index = tmp_path / "index.js"
+            fake_qr = tmp_path / "qrcode.png"
+            desktop_dir = tmp_path / "Desktop"
+            fake_node.write_bytes(b"node")
+            fake_index.write_bytes(b"index")
+
+            def fake_popen(*args, **kwargs):
+                # 模拟 NapCat 启动后因未登录生成二维码图片
+                fake_qr.write_bytes(b"PNG_QR_DATA_" * 20)
+                return Mock()
+
+            with patch.multiple(
+                "napcat_mcp.client",
+                NODE_EXE=str(fake_node),
+                INDEX_JS=str(fake_index),
+                QR_CACHE_IMAGE=str(fake_qr),
+                is_port_listening=lambda *a, **kw: False,
+                kill_qq_processes=Mock(return_value=1),
+                ensure_onebot_token=lambda: "tok",
+                get_current_account=lambda: "123456",
+                ensure_onebot_config=lambda *a, **kw: True,
+                subprocess=Mock(
+                    STARTUPINFO=lambda: Mock(dwFlags=0, wShowWindow=0),
+                    STARTF_USESHOWWINDOW=1,
+                    Popen=fake_popen
+                ),
+            ), patch.dict(os.environ, {"OMNIQQ_DESKTOP_DIR": str(desktop_dir)}):
+                res = await self.server.client.start_napcat_process(uin="123456", wait_seconds=2)
+
+            expected_desktop_qr = str(desktop_dir / DESKTOP_QR_FILENAME)
+            self.assertEqual(res["killed_qq_processes"], 1)
+            self.assertTrue(res["login_required"])
+            self.assertEqual(res["desktop_qrcode_path"], expected_desktop_qr)
+            self.assertTrue(os.path.exists(expected_desktop_qr))
+            self.assertIn("桌面", res["message"])
+            self.assertIn("扫描", res["message"])
 
     async def test_06_message_buffer_and_hooks(self):
         """验证实时消息缓存池、CQ码净化、条件过滤与事件钩子机制"""

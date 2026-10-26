@@ -19,6 +19,7 @@ from ..config import (
     get_current_account,
     kill_napcat_processes,
     start_qrcode_login_session,
+    export_qrcode_to_desktop,
 )
 
 
@@ -152,9 +153,15 @@ async def switch_qq_account(
         "switched_to": uin_clean,
         "stopped_old_processes": killed,
         "start_result": start_res,
+        "login_required": bool(start_res.get("login_required")),
+        "desktop_qrcode_path": start_res.get("desktop_qrcode_path"),
         "online_account": online_info,
         "available_accounts": get_available_accounts(),
-        "message": f"账号 {uin_clean} 的服务启动状态：{start_res.get('status')}。"
+        "message": (
+            start_res.get("message")
+            if start_res.get("login_required")
+            else f"账号 {uin_clean} 的服务启动状态：{start_res.get('status')}。"
+        )
     }
 
 
@@ -208,10 +215,12 @@ async def get_login_qrcode_image(
     if not client.uses_local_runtime():
         return {'status': 'not_found', 'error': '外部 OneBot URL 没有本地二维码缓存'}
     exists = os.path.exists(QR_CACHE_IMAGE)
+    desktop_qr = export_qrcode_to_desktop(QR_CACHE_IMAGE) if exists else None
+    target_qr = desktop_qr or (QR_CACHE_IMAGE if exists else None)
     opened = False
     if exists and open_image and os.name == "nt":
         try:
-            os.startfile(QR_CACHE_IMAGE)
+            os.startfile(target_qr)
             opened = True
         except Exception:
             pass
@@ -219,10 +228,11 @@ async def get_login_qrcode_image(
     return {
         "status": "ok" if exists else "not_found",
         "qrcode_exists": exists,
-        "qrcode_path": QR_CACHE_IMAGE if exists else None,
+        "qrcode_path": target_qr,
+        "desktop_qrcode_path": desktop_qr,
         "opened_on_screen": opened,
         "message": (
-            f"二维码文件位于 {QR_CACHE_IMAGE}" + ("，已在屏幕弹出显示。" if opened else "。")
+            f"登录二维码已保存到桌面：{target_qr}，请打开桌面上的二维码图片进行扫描登录" + ("（已在屏幕弹出显示）。" if opened else "。")
             if exists
             else "当前没有缓存的二维码图片，请调用 `login_new_qq_by_qrcode` 生成新二维码。"
         )
@@ -237,8 +247,8 @@ async def start_napcat_service(
 ) -> dict[str, Any]:
     """
     启动本地 NapCatQQ 后台服务进程并等待 OneBot (3000/3001) 端口就绪，同时挂载后台 WebSocket 事件监听。
-    适用场景：当本地服务处于停止状态、需要以默认或指定已缓存账号拉起后台进程时调用。不适用与替代：若服务已在运行且需切换账号，请改用 `switch_qq_account`；若需强制重启卡死进程，请改用 `restart_napcat_service`。
-    行为与返回：幂等操作——若端口已在监听则直接返回 `status='already_running'` 而不重复拉起；新启动成功返回 `status='started'`，超时或未安装返回 `status='failed'`。
+    适用场景：当本地服务处于停止状态、需要以默认或指定已缓存账号拉起后台进程时调用（启动前会自动检查并结束冲突的独立 QQ.exe 进程；若检测到需要扫码登录，会自动把登录二维码放到桌面并提示用户打开扫描）。不适用与替代：若服务已在运行且需切换其他已缓存账号，请改用 `switch_qq_account`。
+    行为与返回：幂等操作——启动前先结束冲突的独立 QQ.exe 进程；若端口已在监听则返回 `status='already_running'`；新启动成功返回 `status='started'`；若需扫码登录则将二维码导出至桌面并返回 `login_required=True` 及 `desktop_qrcode_path`。
     :param uin: 指定要自动登录的 5~11 位纯数字 QQ 号字符串；留空则使用本地配置中的当前默认账号
     :param wait_seconds: 启动进程后轮询等待 OneBot HTTP 端口监听就绪的最大秒数，默认 25
     """

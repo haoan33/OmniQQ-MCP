@@ -39,7 +39,7 @@ jobs:
           $wheel = (Get-ChildItem dist\*.whl | Select-Object -First 1).FullName
           & "$env:RUNNER_TEMP\omniqq-smoke\Scripts\python.exe" -m pip install $wheel
           Push-Location $env:RUNNER_TEMP
-          & "$env:RUNNER_TEMP\omniqq-smoke\Scripts\python.exe" -c "from napcat_mcp.server import NapCatMCPServer; s=NapCatMCPServer(); assert len(s.registry.list_tools()) == 19 and len(s.registry.list_tools(include_all=True)) == 74"
+          & "$env:RUNNER_TEMP\omniqq-smoke\Scripts\python.exe" -c "from napcat_mcp.server import NapCatMCPServer; s=NapCatMCPServer(); assert len(s.registry.list_tools()) == 20 and len(s.registry.list_tools(include_all=True)) == 74"
           Pop-Location
       - uses: actions/upload-artifact@v4
         with:

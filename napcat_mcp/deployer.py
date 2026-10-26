@@ -19,6 +19,7 @@ from .config import (
     NODE_EXE,
     INDEX_JS,
     LOCAL_RELEASE_ZIP,
+    QR_CACHE_IMAGE,
     DEFAULT_HTTP_PORT,
     DEFAULT_WS_PORT,
     is_port_listening,
@@ -26,6 +27,7 @@ from .config import (
     get_available_accounts,
     ensure_onebot_config,
     kill_napcat_processes,
+    export_qrcode_to_desktop,
 )
 
 logger = logging.getLogger("NapCatMCP.Deployer")
@@ -159,10 +161,17 @@ async def check_napcat_environment(live_version_info: Optional[dict[str, Any]] =
         )
     elif not service_running:
         status = "installed_not_running"
-        advice = (
-            "NapCat 运行时已安装，但服务尚未启动（端口 3000/3001 未监听）。"
-            "可调用 `switch_qq_account`（已缓存账号）或 `login_new_qq_by_qrcode`（新账号扫码）拉起服务，或调用 `get_login_info` 等核心工具触发自动自愈启动。"
-        )
+        desktop_qr = export_qrcode_to_desktop(QR_CACHE_IMAGE) if os.path.exists(QR_CACHE_IMAGE) else None
+        if desktop_qr:
+            advice = (
+                f"NapCat 运行时已安装，检测到需要扫码登录！已将登录二维码放到桌面：{desktop_qr}，"
+                "请打开桌面上的二维码图片进行扫描登录，或调用 `start_napcat_service` / `login_new_qq_by_qrcode`。"
+            )
+        else:
+            advice = (
+                "NapCat 运行时已安装，但服务尚未启动（端口 3000/3001 未监听）。"
+                "可调用 `start_napcat_service`、`switch_qq_account` 或 `login_new_qq_by_qrcode` 拉起服务。"
+            )
     else:
         status = "ready"
         advice = "NapCat 运行时已就绪且 OneBot 11 服务正在正常运行。"

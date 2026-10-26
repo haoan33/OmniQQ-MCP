@@ -19,9 +19,12 @@ from .config import (
     SHELL_NODE_DIR,
     NODE_EXE,
     INDEX_JS,
+    QR_CACHE_IMAGE,
     is_port_listening,
     get_current_account,
     ensure_onebot_config,
+    kill_qq_processes,
+    export_qrcode_to_desktop,
 )
 from .message_buffer import MessageBuffer
 from .token_store import load_onebot_token, ensure_onebot_token, save_verified_onebot_token
@@ -110,11 +113,16 @@ class NapCatClient:
     async def _start_napcat_process(self, uin: Optional[str], wait_seconds: int) -> dict[str, Any]:
         """
         启动本地 NapCat 沙箱进程 (混合自愈能力)
-        若端口已监听则直接返回就绪；否则拉起本地沙箱 Node。
+        1. 启动前先检查独立 QQ 进程 (QQ.exe) 是否启动，若启动则先结束 QQ 进程；
+        2. 若端口已监听则直接返回就绪；否则拉起本地沙箱 Node；
+        3. 若检测到需要扫码登录并生成了二维码，自动将二维码图片复制到桌面并提示用户打开扫描。
         """
+        killed_qq = await asyncio.to_thread(kill_qq_processes)
+
         if is_port_listening(DEFAULT_HTTP_PORT):
             return {
                 "status": "already_running",
+                "killed_qq_processes": killed_qq,
                 "http_port": DEFAULT_HTTP_PORT,
                 "ws_port": DEFAULT_WS_PORT,
                 "message": "NapCat 服务已在运行中，无需重复启动。"
@@ -123,6 +131,7 @@ class NapCatClient:
         if not (os.path.exists(NODE_EXE) and os.path.exists(INDEX_JS)):
             return {
                 "status": "not_installed",
+                "killed_qq_processes": killed_qq,
                 "error": f"未找到 NapCat 运行时文件 ({NODE_EXE})，请先调用 check_napcat_environment 或 deploy_or_update_napcat 进行部署。"
             }
 
@@ -130,7 +139,14 @@ class NapCatClient:
         account = str(uin or get_current_account()).strip()
         if account:
             if not ensure_onebot_config(account, token=self.token):
-                return {'status': 'failed', 'error': '无法写入带 Token 的 OneBot 配置'}
+                return {'status': 'failed', 'killed_qq_processes': killed_qq, 'error': '无法写入带 Token 的 OneBot 配置'}
+
+        # 清理旧二维码缓存，以便准确识别本次启动是否生成了需要登录的新二维码
+        if os.path.exists(QR_CACHE_IMAGE):
+            try:
+                os.remove(QR_CACHE_IMAGE)
+            except Exception:
+                pass
 
         cmd = [NODE_EXE, INDEX_JS]
         if account:
@@ -152,24 +168,49 @@ class NapCatClient:
         except Exception as e:
             return {
                 "status": "failed",
+                "killed_qq_processes": killed_qq,
                 "error": f"拉起 NapCat 进程失败: {e}"
             }
 
-        # 等待端口就绪
+        # 等待端口就绪或检测是否生成了需要扫码登录的二维码
+        desktop_qr: Optional[str] = None
         for _ in range(wait_seconds * 2):
             if is_port_listening(DEFAULT_HTTP_PORT):
                 return {
                     "status": "started",
                     "uin": account,
+                    "killed_qq_processes": killed_qq,
                     "http_port": DEFAULT_HTTP_PORT,
                     "ws_port": DEFAULT_WS_PORT,
                     "message": f"NapCat 服务已成功拉起并监听端口 {DEFAULT_HTTP_PORT}/{DEFAULT_WS_PORT}。"
                 }
+            if os.path.exists(QR_CACHE_IMAGE) and os.path.getsize(QR_CACHE_IMAGE) > 100:
+                desktop_qr = await asyncio.to_thread(export_qrcode_to_desktop, QR_CACHE_IMAGE)
+                break
             await asyncio.sleep(0.5)
+
+        if not desktop_qr and os.path.exists(QR_CACHE_IMAGE) and os.path.getsize(QR_CACHE_IMAGE) > 100:
+            desktop_qr = await asyncio.to_thread(export_qrcode_to_desktop, QR_CACHE_IMAGE)
+
+        if desktop_qr:
+            return {
+                "status": "starting_pending_login",
+                "login_required": True,
+                "uin": account,
+                "killed_qq_processes": killed_qq,
+                "qrcode_path": desktop_qr,
+                "desktop_qrcode_path": desktop_qr,
+                "cache_qrcode_path": QR_CACHE_IMAGE,
+                "message": (
+                    f"检测到需要登录 QQ，已将 NapCat 生成的二维码图片放到桌面：{desktop_qr}，"
+                    "请打开桌面上的二维码图片进行扫描登录。"
+                )
+            }
 
         return {
             "status": "starting_pending_login",
             "uin": account,
+            "killed_qq_processes": killed_qq,
             "message": "NapCat 进程已启动，但 OneBot 端口尚未就绪（可能需要扫码登录或正在初始化，请检查最小化的 NapCat 窗口）。"
         }
 
@@ -191,8 +232,6 @@ class NapCatClient:
 
         # 清理 payload 中值为 None 的可选字段，避免部分严格校验接口报错
         clean_payload = {k: v for k, v in payload.items() if v is not None}
-
-
         # 若本地端口未监听且开启了混合自愈，尝试自动拉起
         local_default = self.uses_local_runtime()
         if self.auto_heal and local_default and not await asyncio.to_thread(is_port_listening, DEFAULT_HTTP_PORT):
@@ -204,6 +243,17 @@ class NapCatClient:
                     "action": action_clean,
                     "error": heal_res.get("error"),
                     "environment_hint": "请调用 check_napcat_environment 查看详情，或调用 deploy_or_update_napcat 部署环境。"
+                }
+            if heal_res.get("login_required"):
+                return {
+                    "status": "failed",
+                    "retcode": -2,
+                    "action": action_clean,
+                    "login_required": True,
+                    "qrcode_path": heal_res.get("qrcode_path"),
+                    "desktop_qrcode_path": heal_res.get("desktop_qrcode_path"),
+                    "error": heal_res.get("message"),
+                    "advice": f"请打开桌面上的二维码图片 ({heal_res.get('desktop_qrcode_path') or heal_res.get('qrcode_path')}) 扫描登录。"
                 }
 
         url = f"{self.http_url}/{action_clean}"
@@ -234,12 +284,24 @@ class NapCatClient:
                     return {**data,'status':'failed','retcode':resp.status,'action':action_clean}
                 return data
         except (aiohttp.ClientConnectorError, ConnectionRefusedError) as e:
+            if local_default and os.path.exists(QR_CACHE_IMAGE) and os.path.getsize(QR_CACHE_IMAGE) > 100:
+                desktop_qr = await asyncio.to_thread(export_qrcode_to_desktop, QR_CACHE_IMAGE)
+                return {
+                    "status": "failed",
+                    "retcode": -100,
+                    "action": action_clean,
+                    "login_required": True,
+                    "qrcode_path": desktop_qr or QR_CACHE_IMAGE,
+                    "desktop_qrcode_path": desktop_qr,
+                    "error": f"无法连接到 NapCat HTTP 服务 ({self.http_url}): 检测到需要扫码登录。",
+                    "advice": f"已将 NapCat 生成的登录二维码放到桌面：{desktop_qr or QR_CACHE_IMAGE}，请打开桌面上的二维码图片扫描登录。"
+                }
             return {
                 "status": "failed",
                 "retcode": -100,
                 "action": action_clean,
                 "error": f"无法连接到 NapCat HTTP 服务 ({self.http_url}): {e}",
-                "advice": "请确认 NapCat 已启动并登录 QQ，或调用 check_napcat_environment 诊断环境、使用 switch_qq_account / login_new_qq_by_qrcode 启动登录。"
+                "advice": "请确认 NapCat 已启动并登录 QQ，或调用 start_napcat_service / check_napcat_environment 诊断环境、使用 switch_qq_account / login_new_qq_by_qrcode 启动登录。"
             }
         except asyncio.TimeoutError:
             return {

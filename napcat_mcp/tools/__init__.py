@@ -7,8 +7,8 @@ import os
 import types
 from typing import Any, Callable, Dict, List, Optional, Union, get_type_hints, get_origin, get_args
 
-# 默认暴露的 19 个核心与纯本地工具（14 个高频核心工具 + 5 个无 OneBot HTTP 等价端点的纯本地工具）
-# 其余 55 个细分 OneBot 具名工具可通过 call_napcat_api 透传调用、直接传给 tools/call，或通过 OMNIQQ_TOOL_PROFILE=full 全量暴露
+# 默认暴露的 20 个核心与纯本地工具（14 个高频核心工具 + 6 个无 OneBot HTTP 等价端点的纯本地工具）
+# 其余 54 个细分 OneBot 具名工具可通过 call_napcat_api 透传调用、直接传给 tools/call，或通过 OMNIQQ_TOOL_PROFILE=full 全量暴露
 CORE_TOOL_NAMES: tuple[str, ...] = (
     "check_napcat_environment",
     "deploy_or_update_napcat",
@@ -16,6 +16,7 @@ CORE_TOOL_NAMES: tuple[str, ...] = (
     "login_new_qq_by_qrcode",
     "get_login_qrcode_image",
     "switch_qq_account",
+    "start_napcat_service",
     "stop_napcat_service",
     "send_private_msg",
     "send_group_msg",
