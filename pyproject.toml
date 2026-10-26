@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "omniqq-mcp"
-version = "1.2.0"
+version = "1.2.1"
 description = "NapCat OneBot 11 MCP server with 74 tools, account-isolated events and concurrent requests"
 readme = "README.md"
 license = {text = "MIT"}

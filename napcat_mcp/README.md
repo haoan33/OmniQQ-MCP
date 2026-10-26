@@ -113,6 +113,11 @@ python -m pip install -r requirements.txt
 
 更新全部 MCP 宿主使用的源码或安装包后，重启 MCP 进程以加载新版本。新安装的运行时、日志、账号选择和 Token 默认位于 `%LOCALAPPDATA%\OmniQQ-MCP`；已有 `napcat_runtime` 会继续使用。
 
+### v1.2.1 (2026-10-26)
+- **启动前自动清理冲突 `QQ.exe` 进程**：每次启动 NapCat 服务前自动检测并结束独立 `QQ.exe` 进程，避免同账号互踢与数据库锁冲突。
+- **需登录时自动导出二维码至桌面**：检测到需要扫码登录时，自动将 `qrcode.png` 复制到桌面（`qq_login_qrcode.png`）并提示用户打开扫描。
+- **纯本地工具入核与未知接口引导**：将 6 个无 OneBot HTTP 等价接口的纯本地工具纳入 `core` 模式（共 20 个工具），并为 `call_napcat_api` 未知接口报错补充 `list_supported_napcat_actions` 指引。
+
 ### v1.2.0 (2026-10-25)
 - **核心工具精简与全量兼容 (`OMNIQQ_TOOL_PROFILE`)**：默认 `tools/list` 暴露 19 个核心与本地工具（14 个高频核心工具 + 5 个无 OneBot 等价接口的纯本地工具），`tools/call` 仍支持直接调用全部 74 项具名工具，设置 `OMNIQQ_TOOL_PROFILE=full` 可全量列出。
 - **标准注解与返回结构**：为全部工具补齐 MCP `annotations` 与 `outputSchema`，剥离主描述中重复的 `:param` 行并补全使用场景、权限要求与副作用说明。

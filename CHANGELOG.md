@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.2.1] - 2026-10-26
+
+### Added
+- Pre-launch `QQ.exe` process cleanup (`kill_qq_processes`): automatically checks for and terminates conflicting standalone `QQ.exe` processes before starting the NapCat service (`start_napcat_service`, `switch_qq_account`, `restart_napcat_service`, `login_new_qq_by_qrcode`, and auto-heal).
+- Automatic Desktop QR code export (`export_qrcode_to_desktop`): whenever NapCat detects that login is required and generates `qrcode.png`, copies the QR code image to the user's Desktop (`qq_login_qrcode.png`) and returns `login_required=True` and `desktop_qrcode_path` prompting the user to scan.
+
+### Fixed
+- Included all 6 pure local runtime/buffer tools (`start_napcat_service`, `stop_napcat_service`, `list_qq_accounts`, `get_login_qrcode_image`, `get_recent_notices_and_requests`, `clear_recent_messages_buffer`) in `CORE_TOOL_NAMES` (20 tools in `core` mode) and added local handler dispatch in `call_napcat_api`.
+- Added explicit `list_supported_napcat_actions` guidance when `call_napcat_api` receives an unknown or unsupported action.
+
 ## [1.2.0] - 2026-10-25
 
 ### Added
