@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+import asyncio
 from typing import Any, Optional
 import aiohttp
 
@@ -33,6 +34,7 @@ from .config import (
 logger = logging.getLogger("NapCatMCP.Deployer")
 
 GITHUB_RELEASE_API = "https://api.github.com/repos/NapNeko/NapCatQQ/releases/latest"
+_deployment_lock = asyncio.Lock()
 
 
 def check_installed_runtime() -> dict[str, str]:
@@ -211,6 +213,19 @@ async def deploy_or_update_napcat(
     use_local_zip_if_available: bool = True,
     target_uin: Optional[str] = None
 ) -> dict[str, Any]:
+    """Serialize confirmed deployments so backups and rollbacks cannot overlap."""
+    if confirmed is not True:
+        return await _deploy_or_update_napcat(action, confirmed, use_local_zip_if_available, target_uin)
+    async with _deployment_lock:
+        return await _deploy_or_update_napcat(action, confirmed, use_local_zip_if_available, target_uin)
+
+
+async def _deploy_or_update_napcat(
+    action: str = "deploy",
+    confirmed: bool = False,
+    use_local_zip_if_available: bool = True,
+    target_uin: Optional[str] = None
+) -> dict[str, Any]:
     """
     自动部署或更新 NapCat 运行时环境。
     安全门禁：当 confirmed=False 时，仅生成部署预览计划，绝不执行文件写入或下载，必须征得用户同意后传入 confirmed=True。
@@ -294,63 +309,81 @@ async def deploy_or_update_napcat(
             "manual_url": "https://github.com/NapNeko/NapCatQQ/releases"
         }
 
-    # Validate a staging directory before stopping the service or changing installed files.
-    backup_directory = None
-    changed_installation = False
-    def restore_backup():
-        if not backup_directory or not os.path.isdir(backup_directory):
-            return False
-        if not os.path.commonpath([os.path.abspath(RUNTIME_DIR), os.path.abspath(SHELL_NODE_DIR)]) == os.path.abspath(RUNTIME_DIR):
-            raise RuntimeError('安装目录不在运行时目录内，拒绝回滚')
-        shutil.rmtree(SHELL_NODE_DIR)
-        shutil.copytree(backup_directory, SHELL_NODE_DIR)
-        return True
+    def install_runtime():
+        # Validate a staging directory before stopping the service or changing installed files.
+        backup_directory = None
+        changed_installation = False
+        def restore_backup():
+            if not backup_directory or not os.path.isdir(backup_directory):
+                return False
+            if not os.path.commonpath([os.path.abspath(RUNTIME_DIR), os.path.abspath(SHELL_NODE_DIR)]) == os.path.abspath(RUNTIME_DIR):
+                raise RuntimeError('安装目录不在运行时目录内，拒绝回滚')
+            shutil.rmtree(SHELL_NODE_DIR)
+            shutil.copytree(backup_directory, SHELL_NODE_DIR)
+            return True
 
-    try:
-        with tempfile.TemporaryDirectory(prefix='napcat-stage-',dir=RUNTIME_DIR) as staging:
-            with zipfile.ZipFile(zip_to_extract, "r") as zf:
-                for info in zf.infolist():
-                    target = os.path.abspath(os.path.join(staging,info.filename))
-                    if os.path.commonpath([os.path.abspath(staging),target]) != os.path.abspath(staging):
-                        raise ValueError('安装包包含越界路径')
-                zf.extractall(staging)
-            if not all(os.path.isfile(os.path.join(staging,name)) for name in ('node.exe','index.js')):
-                raise ValueError('安装包缺少 node.exe 或 index.js，未修改已安装运行时')
-            if os.path.exists(NODE_EXE):
-                backup_directory = os.path.join(RUNTIME_DIR,f'backup-{time.time_ns()}')
-                shutil.copytree(SHELL_NODE_DIR,backup_directory)
-                import asyncio
-                await asyncio.to_thread(kill_napcat_processes)
-            try:
-                changed_installation = True
-                for folder, directories, files in os.walk(staging):
-                    relative = os.path.relpath(folder,staging)
-                    target_folder = os.path.join(SHELL_NODE_DIR,relative)
-                    os.makedirs(target_folder,exist_ok=True)
-                    for name in files:
-                        target = os.path.join(target_folder,name)
-                        if os.path.exists(target) and relative.replace('\\','/').startswith(('napcat/config','napcat/cache')):
-                            continue
-                        shutil.copy2(os.path.join(folder,name),target)
-                if not (os.path.isfile(NODE_EXE) and os.path.isfile(INDEX_JS)):
-                    raise RuntimeError('升级后运行时文件校验失败')
-            except Exception:
-                if backup_directory:
-                    restore_backup()
-                raise
-    except Exception as e:
-        if changed_installation and not backup_directory:
-            shutil.rmtree(SHELL_NODE_DIR, ignore_errors=True)
-        return {
-            "status": "failed",
-            "error": f"解压安装包 ({zip_to_extract}) 到 {SHELL_NODE_DIR} 失败: {e}"
-        }
+        try:
+            with tempfile.TemporaryDirectory(prefix='napcat-stage-',dir=RUNTIME_DIR) as staging:
+                with zipfile.ZipFile(zip_to_extract, "r") as zf:
+                    for info in zf.infolist():
+                        target = os.path.abspath(os.path.join(staging,info.filename))
+                        if os.path.commonpath([os.path.abspath(staging),target]) != os.path.abspath(staging):
+                            raise ValueError('安装包包含越界路径')
+                    zf.extractall(staging)
+                if not all(os.path.isfile(os.path.join(staging,name)) for name in ('node.exe','index.js')):
+                    raise ValueError('安装包缺少 node.exe 或 index.js，未修改已安装运行时')
+                # A partially broken runtime may still contain account credentials
+                # and configuration. Snapshot it even when node.exe is missing.
+                if os.path.isdir(SHELL_NODE_DIR):
+                    backup_directory = os.path.join(RUNTIME_DIR,f'backup-{time.time_ns()}')
+                    shutil.copytree(SHELL_NODE_DIR,backup_directory)
+                    kill_napcat_processes()
+                try:
+                    changed_installation = True
+                    for folder, directories, files in os.walk(staging):
+                        relative = os.path.relpath(folder,staging)
+                        target_folder = os.path.join(SHELL_NODE_DIR,relative)
+                        os.makedirs(target_folder,exist_ok=True)
+                        for name in files:
+                            target = os.path.join(target_folder,name)
+                            if os.path.exists(target) and relative.replace('\\','/').startswith(('napcat/config','napcat/cache')):
+                                continue
+                            shutil.copy2(os.path.join(folder,name),target)
+                    if not (os.path.isfile(NODE_EXE) and os.path.isfile(INDEX_JS)):
+                        raise RuntimeError('升级后运行时文件校验失败')
+                except Exception:
+                    if backup_directory:
+                        restore_backup()
+                    raise
+        except Exception as e:
+            if changed_installation and not backup_directory:
+                shutil.rmtree(SHELL_NODE_DIR, ignore_errors=True)
+            return {
+                "status": "failed",
+                "error": f"解压安装包 ({zip_to_extract}) 到 {SHELL_NODE_DIR} 失败: {e}"
+            }
 
-    # 4. 初始化 OneBot 11 配置文件
-    config_ok = False
-    if uin:
-        config_ok = ensure_onebot_config(uin)
-        if not config_ok:
+        # 4. 初始化 OneBot 11 配置文件
+        config_ok = False
+        if uin:
+            config_ok = ensure_onebot_config(uin)
+            if not config_ok:
+                try:
+                    rolled_back = restore_backup()
+                    if not backup_directory and changed_installation:
+                        if os.path.commonpath([os.path.abspath(RUNTIME_DIR), os.path.abspath(SHELL_NODE_DIR)]) != os.path.abspath(RUNTIME_DIR):
+                            raise RuntimeError('安装目录不在运行时目录内，拒绝回滚')
+                        shutil.rmtree(SHELL_NODE_DIR)
+                        rolled_back = True
+                except Exception as exc:
+                    return {'status': 'failed', 'error': f'OneBot 配置失败且回滚失败: {exc}',
+                            'backup_directory': backup_directory}
+                return {'status': 'failed', 'error': 'OneBot 配置写入失败',
+                        'rolled_back': rolled_back, 'backup_directory': backup_directory}
+
+        try:
+            health = check_installed_runtime()
+        except Exception as exc:
             try:
                 rolled_back = restore_backup()
                 if not backup_directory and changed_installation:
@@ -358,37 +391,31 @@ async def deploy_or_update_napcat(
                         raise RuntimeError('安装目录不在运行时目录内，拒绝回滚')
                     shutil.rmtree(SHELL_NODE_DIR)
                     rolled_back = True
-            except Exception as exc:
-                return {'status': 'failed', 'error': f'OneBot 配置失败且回滚失败: {exc}',
+            except Exception as rollback_error:
+                return {'status': 'failed', 'error': f'运行时校验失败且回滚失败: {rollback_error}',
                         'backup_directory': backup_directory}
-            return {'status': 'failed', 'error': 'OneBot 配置写入失败',
+            return {'status': 'failed', 'error': f'运行时校验失败: {exc}',
                     'rolled_back': rolled_back, 'backup_directory': backup_directory}
 
-    try:
-        health = check_installed_runtime()
-    except Exception as exc:
-        try:
-            rolled_back = restore_backup()
-            if not backup_directory and changed_installation:
-                if os.path.commonpath([os.path.abspath(RUNTIME_DIR), os.path.abspath(SHELL_NODE_DIR)]) != os.path.abspath(RUNTIME_DIR):
-                    raise RuntimeError('安装目录不在运行时目录内，拒绝回滚')
-                shutil.rmtree(SHELL_NODE_DIR)
-                rolled_back = True
-        except Exception as rollback_error:
-            return {'status': 'failed', 'error': f'运行时校验失败且回滚失败: {rollback_error}',
-                    'backup_directory': backup_directory}
-        return {'status': 'failed', 'error': f'运行时校验失败: {exc}',
-                'rolled_back': rolled_back, 'backup_directory': backup_directory}
+        return {
+            "status": "success",
+            "action": action,
+            "extracted_from": zip_to_extract,
+            "target_directory": SHELL_NODE_DIR,
+            "node_ready": os.path.exists(NODE_EXE),
+            "index_ready": os.path.exists(INDEX_JS),
+            "onebot_configured_for_uin": uin if config_ok else None,
+            "backup_directory": backup_directory,
+            "health_check": health,
+            "message": "NapCat 运行时已成功部署/更新！现在可以调用 `switch_qq_account` 或 `login_new_qq_by_qrcode` 登录并启动服务。"
+        }
 
-    return {
-        "status": "success",
-        "action": action,
-        "extracted_from": zip_to_extract,
-        "target_directory": SHELL_NODE_DIR,
-        "node_ready": os.path.exists(NODE_EXE),
-        "index_ready": os.path.exists(INDEX_JS),
-        "onebot_configured_for_uin": uin if config_ok else None,
-        "backup_directory": backup_directory,
-        "health_check": health,
-        "message": "NapCat 运行时已成功部署/更新！现在可以调用 `switch_qq_account` 或 `login_new_qq_by_qrcode` 登录并启动服务。"
-    }
+    # Keep ZIP extraction, copying, configuration fsync and subprocess health
+    # checks off the event loop. On cancellation retain the deployment lock
+    # until the worker finishes its transaction or rollback.
+    task = asyncio.create_task(asyncio.to_thread(install_runtime))
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        await task
+        raise

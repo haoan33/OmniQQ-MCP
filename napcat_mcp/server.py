@@ -298,8 +298,15 @@ class NapCatMCPServer:
         async def dispatch(request):
             request_id = request.get('id') if isinstance(request, dict) else None
             try:
-                async with slots:
+                # Metadata and liveness checks must remain available while
+                # all eight potentially slow tool execution slots are busy.
+                if isinstance(request, dict) and request.get('method') in (
+                    'initialize', 'ping', 'tools/list', 'resources/list', 'prompts/list', 'prompts/get'
+                ):
                     response = await self.handle_request(request)
+                else:
+                    async with slots:
+                        response = await self.handle_request(request)
             except asyncio.CancelledError:
                 response = self._error_response(request_id, -32800, '请求已取消')
             except Exception:
@@ -327,17 +334,23 @@ class NapCatMCPServer:
                     continue
                 if isinstance(req, dict) and req.get('method') == 'notifications/cancelled':
                     request_id = (req.get('params') or {}).get('requestId') if isinstance(req.get('params'), dict) else None
+                    # Validate before using untrusted IDs as dictionary keys.
+                    if req.get('jsonrpc') != '2.0' or 'id' in req or type(request_id) not in (int, str):
+                        continue
                     task = active.get(request_id)
                     if task and not task.done():
                         # Once a write starts, its remote effect may outlive cancellation.
                         if getattr(task, 'cancellable', False):
                             task.cancel()
                     continue
+                request_id = req.get('id') if isinstance(req, dict) else None
+                if request_id is not None and type(request_id) not in (int, str):
+                    await write_response(self._error_response(None, -32600, '无效的 JSON-RPC 请求 ID'))
+                    continue
                 if len(pending) >= 64:
                     if isinstance(req, dict) and 'id' in req:
                         await write_response(self._error_response(req['id'], -32000, '服务器繁忙'))
                     continue
-                request_id = req.get('id') if isinstance(req, dict) else None
                 if request_id is not None and request_id in active:
                     await write_response(self._error_response(request_id, -32600, '重复请求 ID'))
                     continue
@@ -347,7 +360,7 @@ class NapCatMCPServer:
                 tool_name = params.get('name', '') if isinstance(params, dict) else ''
                 task.cancellable = (method in ('ping', 'resources/read', 'resources/list', 'prompts/get',
                                                'prompts/list', 'tools/list') or
-                                    (method == 'tools/call' and tool_name.startswith(
+                                    (method == 'tools/call' and isinstance(tool_name, str) and tool_name.startswith(
                                         ('get_', 'list_', 'check_', 'fetch_'))))
                 pending.add(task)
                 task.add_done_callback(pending.discard)

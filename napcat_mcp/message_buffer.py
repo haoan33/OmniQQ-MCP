@@ -18,6 +18,7 @@ class MessageBuffer:
         self.maxlen = maxlen
         self._accounts: dict[str, tuple[deque, deque, deque]] = {}
         self.active_account = ''
+        self._account_generation = 0
         self._messages, self._notices, self._requests = self._account_buffers('')
         self._event_hooks: list[Callable[[dict[str, Any]], Any]] = []
         self._hook_tasks = set()
@@ -34,6 +35,8 @@ class MessageBuffer:
         account = str(account).strip()
         if not account.isdigit():
             raise ValueError('QQ account must be numeric')
+        if account != self.active_account:
+            self._account_generation += 1
         self.active_account = account
         self._messages, self._notices, self._requests = self._account_buffers(account)
 
@@ -60,15 +63,17 @@ class MessageBuffer:
             if self._hook_queue is None:
                 self._hook_queue = asyncio.Queue(maxsize=200)
                 self._hook_worker = asyncio.create_task(self._drain_hooks())
-            await self._hook_queue.put(record)
+            await self._hook_queue.put((self.active_account, self._account_generation, record))
         return record
 
     async def _drain_hooks(self):
         import asyncio
         while True:
-            record = await self._hook_queue.get()
+            account, generation, record = await self._hook_queue.get()
             try:
                 for hook in list(self._event_hooks):
+                    if account != self.active_account or generation != self._account_generation:
+                        break
                     try:
                         if asyncio.iscoroutinefunction(hook):
                             await hook(record)
@@ -114,15 +119,17 @@ class MessageBuffer:
                     continue
                 stype = seg.get("type", "")
                 sdata = seg.get("data", {}) or {}
+                if not isinstance(sdata, dict):
+                    continue
                 if stype == "text":
-                    parts.append(sdata.get("text", ""))
+                    parts.append(str(sdata.get("text") or ""))
                 elif stype == "at":
                     qq = sdata.get("qq", "")
                     name = sdata.get("name", "")
                     parts.append(f"@{name or qq} ")
                 elif stype == "image":
                     url = sdata.get("url") or sdata.get("file", "")
-                    summary = sdata.get("summary", "[图片]")
+                    summary = str(sdata.get("summary") or "[图片]")
                     parts.append(f"{summary}({url})" if url else summary)
                 elif stype == "file":
                     fname = sdata.get("file", "未知文件")
@@ -178,17 +185,23 @@ class MessageBuffer:
         if post_type == "meta_event":
             return None
 
-        ts = event.get("time") or int(time.time())
-        dt_str = datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            ts = float(event.get("time") or time.time())
+            dt_str = datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+        except (TypeError, ValueError, OverflowError, OSError):
+            ts = time.time()
+            dt_str = datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
 
         record: Optional[dict[str, Any]] = None
 
         if post_type in ("message", "message_sent"):
             msg_type = event.get("message_type", "private")
             sender = event.get("sender") or {}
+            if not isinstance(sender, dict):
+                sender = {}
             user_id = event.get("user_id") or sender.get("user_id")
             group_id = event.get("group_id")
-            nickname = sender.get("card") or sender.get("nickname") or str(user_id or "")
+            nickname = str(sender.get("card") or sender.get("nickname") or user_id or "")
 
             record = {
                 "post_type": post_type,
@@ -271,6 +284,9 @@ class MessageBuffer:
         :param include_self_sent: 是否包含机器人自身发出的回声消息
         """
         results = []
+        limit = max(1, int(count))
+        tid = int(target_id) if target_id is not None else None
+        kw = keyword.lower() if keyword else None
         for item in reversed(self._messages):
             if not include_self_sent and item.get("is_self_sent"):
                 continue
@@ -279,25 +295,23 @@ class MessageBuffer:
             if chat_type in ("private", "group") and mtype != chat_type:
                 continue
 
-            if target_id is not None:
-                tid = int(target_id)
+            if tid is not None:
                 if mtype == "group":
-                    if item.get("group_id") != tid and item.get("user_id") != tid:
+                    if item.get("group_id") != tid and (chat_type == 'group' or item.get("user_id") != tid):
                         continue
                 else:
                     peer = item.get('target_id') if item.get('is_self_sent') else item.get('user_id')
                     if peer != tid:
                         continue
 
-            if keyword:
-                kw = keyword.lower()
+            if kw:
                 text = (item.get("clean_text") or "").lower()
                 nick = (item.get("nickname") or "").lower()
                 if kw not in text and kw not in nick:
                     continue
 
             results.append(item)
-            if len(results) >= max(1, int(count)):
+            if len(results) >= limit:
                 break
 
         return list(reversed(results))
@@ -313,7 +327,9 @@ class MessageBuffer:
         }
 
     def clear(self) -> int:
-        """清空消息缓冲区，返回清理的消息条数"""
-        n = len(self._messages)
+        """清空当前账号的消息、通知与请求，返回清理的记录总数。"""
+        n = len(self._messages) + len(self._notices) + len(self._requests)
         self._messages.clear()
+        self._notices.clear()
+        self._requests.clear()
         return n

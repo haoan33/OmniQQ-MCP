@@ -5,6 +5,7 @@ import os
 import json
 import asyncio
 import logging
+import random
 import subprocess
 from urllib.parse import urlsplit
 from typing import Any, Optional
@@ -45,7 +46,8 @@ class NapCatClient:
     ):
         self.http_url = http_url.rstrip("/")
         self.ws_url = ws_url.rstrip("/")
-        self.token = load_onebot_token() if token is None else token
+        self._use_external_token_file = token is None and bool(os.environ.get('OMNIQQ_ONEBOT_TOKEN_FILE'))
+        self.token = (load_onebot_token() if self.uses_local_runtime() or self._use_external_token_file else '') if token is None else token
         self.auto_heal = auto_heal
         self.buffer = MessageBuffer(maxlen=buffer_maxlen)
 
@@ -59,7 +61,7 @@ class NapCatClient:
 
     def _get_headers(self) -> dict[str, str]:
         headers = {"Content-Type": "application/json"}
-        if not self.token:
+        if not self.token and (self.uses_local_runtime() or self._use_external_token_file):
             self.token = load_onebot_token()
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
@@ -76,6 +78,8 @@ class NapCatClient:
 
     async def _recover_local_token(self) -> bool:
         """Use a changed local NapCat config only after it authenticates a read-only probe."""
+        if not self.uses_local_runtime():
+            return False
         from .config import NAPCAT_CONFIG_DIR
         account = get_current_account()
         if not account:
@@ -117,9 +121,9 @@ class NapCatClient:
         2. 若端口已监听则直接返回就绪；否则拉起本地沙箱 Node；
         3. 若检测到需要扫码登录并生成了二维码，自动将二维码图片复制到桌面并提示用户打开扫描。
         """
-        killed_qq = await asyncio.to_thread(kill_qq_processes)
+        killed_qq = 0
 
-        if is_port_listening(DEFAULT_HTTP_PORT):
+        if await asyncio.to_thread(is_port_listening, DEFAULT_HTTP_PORT):
             return {
                 "status": "already_running",
                 "killed_qq_processes": killed_qq,
@@ -140,6 +144,10 @@ class NapCatClient:
         if account:
             if not ensure_onebot_config(account, token=self.token):
                 return {'status': 'failed', 'killed_qq_processes': killed_qq, 'error': '无法写入带 Token 的 OneBot 配置'}
+
+        # Only stop conflicting QQ processes after deciding a launch is needed
+        # and validating the runtime and its configuration.
+        killed_qq = await asyncio.to_thread(kill_qq_processes)
 
         # 清理旧二维码缓存，以便准确识别本次启动是否生成了需要登录的新二维码
         if os.path.exists(QR_CACHE_IMAGE):
@@ -320,7 +328,10 @@ class NapCatClient:
 
     async def _ws_loop(self):
         """后台 WebSocket 实时事件监听协程 (支持自动断线重连)"""
+        retry_delay = 1.0
+        loop = asyncio.get_running_loop()
         while self._running:
+            connected_at = None
             try:
                 headers = self._get_headers()
                 async with websockets.connect(
@@ -330,6 +341,7 @@ class NapCatClient:
                     ping_timeout=20
                 ) as ws:
                     self._ws_connected = True
+                    connected_at = loop.time()
                     logger.info(f"成功连接 NapCat WebSocket 事件流: {self.ws_url}")
                     if self.on_ws_connected:
                         await self.on_ws_connected()
@@ -340,17 +352,26 @@ class NapCatClient:
                             event = json.loads(raw_msg)
                             if isinstance(event, dict) and event.get('retcode') == 1403:
                                 self._ws_connected = False
-                                if not await self._recover_local_token():
-                                    await asyncio.sleep(3)
+                                await self._recover_local_token()
                                 break
                             await self.buffer.push_event_async(event)
                         except Exception as e:
                             logger.warning(f"解析 WS 事件失败: {e}")
-                self._ws_connected = False
             except Exception as e:
+                if getattr(getattr(e, 'response', None), 'status_code', None) in (401, 403):
+                    await self._recover_local_token()
+                logger.warning('WebSocket 连接中断 (%s)', e)
+            finally:
                 self._ws_connected = False
-                logger.warning(f"WebSocket 连接中断 ({e})，3 秒后尝试重连...")
-                await asyncio.sleep(3)
+            if self._running:
+                # A successful handshake alone must not reset backoff: a peer
+                # can accept and immediately close connections repeatedly.
+                if connected_at is not None and loop.time() - connected_at >= 30:
+                    retry_delay = 1.0
+                delay = min(30.0, retry_delay * random.uniform(0.8, 1.2))
+                logger.info('WebSocket %.1f 秒后重连', delay)
+                await asyncio.sleep(delay)
+                retry_delay = min(30.0, retry_delay * 2)
 
     def start_background_ws(self):
         """启动后台 WebSocket 监听任务"""

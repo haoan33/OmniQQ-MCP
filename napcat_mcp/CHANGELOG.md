@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.2.2] - 2026-10-28
+
+### Fixed
+- Validate request IDs, cancellation IDs and tool names before stdio scheduling so malformed input cannot terminate the MCP session.
+- Preserve existing account data when upgrading an incomplete runtime whose `node.exe` is missing, including failed-upgrade rollback.
+- Keep implicit local OneBot credentials away from external endpoints. Remote endpoints require an explicit `token` or an explicitly selected `OMNIQQ_ONEBOT_TOKEN_FILE`; local-token recovery never probes a remote endpoint.
+- Discard stale queued callbacks after account changes, including switching away and back. Deferred account changes leave the currently active event buffer selected.
+- Check service readiness and runtime configuration before terminating conflicting standalone QQ processes.
+- Apply bounded exponential backoff with jitter after both clean and abnormal WebSocket disconnects; recover authentication failures only against the local runtime.
+- Match group-only queries by group ID, clear all three current-account event caches, and tolerate malformed optional event fields.
+
+### Performance
+- Keep ping, initialization and metadata queries responsive while all eight tool execution slots are occupied.
+- Move runtime extraction, copying, configuration writes and health checks off the event loop. Serialize deployments within one MCP process and retain the lock until an interrupted installation finishes or rolls back.
+- Precompute invariant filter arguments once per message-cache query.
+
+### Tests and compatibility
+- Add 19 offline robustness regressions. Core and full profiles continue to expose 20 and 74 tools respectively.
+- Preserve the public MCP-only package boundary; no account data, credentials, runtime files or application-specific modules are included.
+- Slow event hooks retain ordered backpressure; cross-process runtime coordination remains a follow-up.
+
 ## [1.2.1] - 2026-10-26
 
 ### Added

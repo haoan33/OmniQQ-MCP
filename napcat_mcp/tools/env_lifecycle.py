@@ -126,8 +126,6 @@ async def switch_qq_account(
             "status": "failed",
             "error": f"无效的 QQ 号格式或写入配置失败: {uin}"
         }
-    client.buffer.select_account(uin_clean)
-
     if not restart_immediately:
         return {
             "status": "ok",
@@ -137,6 +135,7 @@ async def switch_qq_account(
             "message": f"已将默认配置切换为 {uin_clean}（尚未重启后台服务，下次启动生效）。"
         }
 
+    client.buffer.select_account(uin_clean)
     # 停止旧进程并以新账号启动
     killed = await asyncio.to_thread(kill_napcat_processes)
     start_res = await client.start_napcat_process(uin=uin_clean, wait_seconds=wait_seconds)

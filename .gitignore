@@ -24,3 +24,11 @@ run_copilot_mcp.py
 start_service.py
 launcher.py
 .agents/
+
+# Local maintenance state and backups
+.update-backups/
+.release-work/
+work/
+state/
+*.db
+*.db-*

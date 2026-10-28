@@ -113,6 +113,12 @@ python -m pip install -r requirements.txt
 
 更新全部 MCP 宿主使用的源码或安装包后，重启 MCP 进程以加载新版本。新安装的运行时、日志、账号选择和 Token 默认位于 `%LOCALAPPDATA%\OmniQQ-MCP`；已有 `napcat_runtime` 会继续使用。
 
+### v1.2.2 (2026-10-28)
+- **协议与账号边界加固**：异常请求不终止 MCP，切账号后旧队列不进入新账号回调，延迟切换保留当前在线账号。
+- **部署与连接恢复**：损坏安装仍备份账号数据；解压、复制及健康检查移出事件循环；同进程部署串行化；正常/异常 WS 断开均带退避重连。
+- **凭据隔离**：外部 OneBot 地址只使用显式 Token 或通过 `OMNIQQ_ONEBOT_TOKEN_FILE` 明确指定的私有文件，不读取默认本地凭据来探测外部服务。
+- **繁忙时响应与缓存修正**：工具槽满时 ping 仍可响应，群号过滤与缓存清空行为修正，并新增 19 项离线回归。
+
 ### v1.2.1 (2026-10-26)
 - **启动前自动清理冲突 `QQ.exe` 进程**：每次启动 NapCat 服务前自动检测并结束独立 `QQ.exe` 进程，避免同账号互踢与数据库锁冲突。
 - **需登录时自动导出二维码至桌面**：检测到需要扫码登录时，自动将 `qrcode.png` 复制到桌面（`qq_login_qrcode.png`）并提示用户打开扫描。
@@ -128,7 +134,7 @@ python -m pip install -r requirements.txt
 
 源码根目录运行 `python -m pip install .`，或安装 Release 附件中的 wheel。安装后可直接使用 `omniqq-mcp` 命令作为 MCP stdio 入口。
 
-连接已有 OneBot 服务时，设置 `NAPCAT_HTTP_URL` 和 `NAPCAT_WS_URL`；鉴权 Token 从私有文件读取，`OMNIQQ_ONEBOT_TOKEN_FILE` 可覆盖默认位置。请保持 Token 文件与 OneBot 服务端鉴权配置一致。
+连接已有 OneBot 服务时，设置 `NAPCAT_HTTP_URL` 和 `NAPCAT_WS_URL`。本地默认运行时从私有凭据文件读取 Token；外部地址必须通过 `OMNIQQ_ONEBOT_TOKEN_FILE` 明确指定对应服务的私有 Token 文件（使用 Python 客户端时也可显式传入 `token`）。请保持该文件与 OneBot 服务端鉴权配置一致，且不要将其放入仓库。
 
 不要上传 Token、账号选择文件、NapCat 登录凭据、二维码、日志或运行时目录。审计仍包含运行时的目标账号和消息 ID，请保存在本地私有目录。
 
