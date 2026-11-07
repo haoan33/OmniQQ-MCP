@@ -149,3 +149,7 @@ python -m pip install -r requirements.txt
 本项目基于 [MIT License](./LICENSE) 开源。
 
 
+
+## 网站版本发布
+
+HaoAn Lab 维护网站展示、版本选择和更新日志，程序无需网站授权或在线版本校验。发布步骤见 [网站接入说明](docs/haoan-lab-integration.md)。

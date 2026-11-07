@@ -1,0 +1,100 @@
+name: Build and publish product
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.config.outputs.matrix }}
+      repository: ${{ steps.config.outputs.repository }}
+      site: ${{ steps.config.outputs.site }}
+      owner: ${{ steps.config.outputs.owner }}
+      repositoryName: ${{ steps.config.outputs.repositoryName }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - id: config
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const c=JSON.parse(fs.readFileSync('.release.json','utf8'));
+          if(!/^https:\/\//.test(c.siteUrl)||c.siteUrl.includes('YOUR-DOMAIN'))throw new Error('先配置正式网站地址');
+          if(!/^[\w.-]+\/[\w.-]+$/.test(c.releaseRepository))throw new Error('无效公开分发仓库');
+          if(!c.targets.length||c.targets.some(t=>!['ubuntu-latest','windows-latest','macos-latest'].includes(t.runner)))throw new Error('无效构建平台');
+          const [owner,repositoryName]=c.releaseRepository.split('/');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT,`matrix=${JSON.stringify({include:c.targets.map(({runner,platform,arch})=>({runner,platform,arch}))})}\nrepository=${c.releaseRepository}\nowner=${owner}\nrepositoryName=${repositoryName}\nsite=${c.siteUrl.replace(/\/$/,'')}\n`);
+          NODE
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Build configured target
+        shell: bash
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          ARCH: ${{ matrix.arch }}
+        run: RELEASE_VERSION="${GITHUB_REF_NAME#v}" node scripts/build.mjs "$PLATFORM" "$ARCH"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ matrix.platform }}-${{ matrix.arch }}
+          path: .release-artifacts/${{ matrix.platform }}-${{ matrix.arch }}/
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 7
+  publish:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: release-downloads
+      - id: distribution
+        if: needs.prepare.outputs.repository != github.repository
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: ${{ needs.prepare.outputs.owner }}
+          repositories: ${{ needs.prepare.outputs.repositoryName }}
+      - name: Publish complete release and notify website
+        run: node scripts/publish.mjs
+        env:
+          GH_TOKEN: ${{ steps.distribution.outputs.token || github.token }}
+  notify-failure:
+    needs: [prepare, build, publish]
+    if: always() && needs.prepare.result == 'success' && (needs.build.result == 'failure' || needs.publish.result == 'failure')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24'
+      - run: node scripts/notify-failure.mjs

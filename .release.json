@@ -1,0 +1,54 @@
+{
+  "product": "omniqq-mcp",
+  "siteUrl": "https://ahmustudyhelper.xyz",
+  "releaseRepository": "haoan33/OmniQQ-MCP",
+  "versionFiles": [
+    {
+      "path": "pyproject.toml",
+      "format": "toml",
+      "key": "project.version"
+    },
+    {
+      "path": "napcat_mcp/__init__.py",
+      "format": "python",
+      "key": "__version__"
+    }
+  ],
+  "targets": [
+    {
+      "platform": "universal",
+      "arch": "universal",
+      "runner": "windows-latest",
+      "commands": [
+        [
+          "python",
+          "-m",
+          "pip",
+          "install",
+          "build"
+        ],
+        [
+          "python",
+          "-X",
+          "utf8",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "tests",
+          "-q"
+        ],
+        [
+          "python",
+          "-m",
+          "build",
+          "--wheel",
+          "--outdir",
+          "dist",
+          "."
+        ]
+      ],
+      "artifact": "dist/omniqq_mcp-{version}-py3-none-any.whl"
+    }
+  ]
+}

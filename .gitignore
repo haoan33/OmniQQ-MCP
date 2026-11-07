@@ -32,3 +32,11 @@ work/
 state/
 *.db
 *.db-*
+
+# Website release pipeline output
+.release-artifacts/
+release-downloads/
+.release-original/
+release-manifest.json
+release-notes.md
+SHA256SUMS
