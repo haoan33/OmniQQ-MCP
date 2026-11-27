@@ -33,7 +33,9 @@ from .config import (
 
 logger = logging.getLogger("NapCatMCP.Deployer")
 
-GITHUB_RELEASE_API = "https://api.github.com/repos/NapNeko/NapCatQQ/releases/latest"
+NAPCAT_REPO = "XingYunStar/NapCatQQ"
+GITHUB_RELEASE_API = f"https://api.github.com/repos/{NAPCAT_REPO}/releases/latest"
+GITHUB_RELEASES_URL = f"https://github.com/{NAPCAT_REPO}/releases"
 _deployment_lock = asyncio.Lock()
 
 
@@ -81,7 +83,7 @@ def get_local_napcat_version() -> dict[str, str]:
 
 
 async def fetch_github_latest_release() -> dict[str, Any]:
-    """查询 NapNeko/NapCatQQ 官方 GitHub 最新 Release 信息"""
+    """查询 XingYunStar/NapCatQQ GitHub 最新 Release 信息"""
     headers = {
         "Accept": "application/vnd.github+json",
         "User-Agent": "OmniQQ-MCP-Server/1.0"
@@ -93,20 +95,29 @@ async def fetch_github_latest_release() -> dict[str, Any]:
                     data = await resp.json()
                     tag_name = data.get("tag_name", "")
                     published_at = data.get("published_at", "")
-                    html_url = data.get("html_url", "https://github.com/NapNeko/NapCatQQ/releases")
+                    html_url = data.get("html_url", GITHUB_RELEASES_URL)
 
-                    # 查找适用于 Windows Node Shell 的资产包
+                    # 优先查找适用于 Windows Node Shell 的资产包，其次回退到其他 Windows zip 包
                     assets = data.get("assets", [])
                     win_asset = None
+                    fallback_asset = None
                     for asset in assets:
                         name = asset.get("name", "")
-                        if "Shell.Windows.Node" in name or ("Windows" in name and name.endswith(".zip")):
+                        if "Shell.Windows.Node" in name and name.endswith(".zip"):
                             win_asset = {
                                 "name": name,
                                 "size_mb": round(asset.get("size", 0) / (1024 * 1024), 2),
                                 "download_url": asset.get("browser_download_url", "")
                             }
                             break
+                        if fallback_asset is None and "Windows" in name and name.endswith(".zip"):
+                            fallback_asset = {
+                                "name": name,
+                                "size_mb": round(asset.get("size", 0) / (1024 * 1024), 2),
+                                "download_url": asset.get("browser_download_url", "")
+                            }
+                    if win_asset is None:
+                        win_asset = fallback_asset
 
                     return {
                         "reachable": True,
@@ -118,13 +129,13 @@ async def fetch_github_latest_release() -> dict[str, Any]:
                 return {
                     "reachable": False,
                     "error": f"GitHub API 返回状态码 {resp.status}",
-                    "release_url": "https://github.com/NapNeko/NapCatQQ/releases"
+                    "release_url": GITHUB_RELEASES_URL
                 }
     except Exception as e:
         return {
             "reachable": False,
             "error": f"无法连接 GitHub Release API: {e}",
-            "release_url": "https://github.com/NapNeko/NapCatQQ/releases"
+            "release_url": GITHUB_RELEASES_URL
         }
 
 
@@ -306,7 +317,7 @@ async def _deploy_or_update_napcat(
         return {
             "status": "failed",
             "error": "既无法从 GitHub 获取下载链接，本地也不存在 NapCat.Shell.Windows.Node.zip 离线包。",
-            "manual_url": "https://github.com/NapNeko/NapCatQQ/releases"
+            "manual_url": GITHUB_RELEASES_URL
         }
 
     def install_runtime():

@@ -280,6 +280,70 @@ class LifecycleHardeningTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(original.read_bytes(), b'original-account-data')
             self.assertFalse((installed / 'node.exe').exists())
 
+    async def test_release_source_uses_xingyunstar_and_prefers_node_shell_asset(self):
+        from napcat_mcp import deployer
+
+        self.assertEqual(
+            deployer.GITHUB_RELEASE_API,
+            'https://api.github.com/repos/XingYunStar/NapCatQQ/releases/latest',
+        )
+        self.assertEqual(
+            deployer.GITHUB_RELEASES_URL,
+            'https://github.com/XingYunStar/NapCatQQ/releases',
+        )
+
+        payload = {
+            'tag_name': 'v4.18.42',
+            'published_at': '2026-11-12T05:43:20Z',
+            'html_url': 'https://github.com/XingYunStar/NapCatQQ/releases/tag/v4.18.42',
+            'assets': [
+                {
+                    'name': 'NapCat.Shell.Windows.OneKey.zip',
+                    'size': 1024 * 1024,
+                    'browser_download_url': 'https://github.com/XingYunStar/NapCatQQ/releases/download/v4.18.42/NapCat.Shell.Windows.OneKey.zip',
+                },
+                {
+                    'name': 'NapCat.Shell.Windows.Node.zip',
+                    'size': 120 * 1024 * 1024,
+                    'browser_download_url': 'https://github.com/XingYunStar/NapCatQQ/releases/download/v4.18.42/NapCat.Shell.Windows.Node.zip',
+                },
+            ],
+        }
+
+        class FakeResponse:
+            status = 200
+
+            async def json(self):
+                return payload
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        requested_urls = []
+
+        class FakeSession:
+            def get(self, url, **kwargs):
+                requested_urls.append(url)
+                return FakeResponse()
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        with patch('napcat_mcp.deployer.aiohttp.ClientSession', return_value=FakeSession()):
+            info = await deployer.fetch_github_latest_release()
+
+        self.assertEqual(requested_urls, [deployer.GITHUB_RELEASE_API])
+        self.assertTrue(info['reachable'])
+        self.assertEqual(info['latest_tag'], 'v4.18.42')
+        self.assertEqual(info['recommended_asset']['name'], 'NapCat.Shell.Windows.Node.zip')
+        self.assertIn('XingYunStar/NapCatQQ', info['recommended_asset']['download_url'])
+
 
 if __name__ == '__main__':
     unittest.main()
