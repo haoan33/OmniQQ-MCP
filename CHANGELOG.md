@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.2.4] - 2026-11-27
+
+### Fixed
+- Switch NapCatQQ runtime release lookup, auto-download and documentation links from the removed `NapNeko/NapCatQQ` repository to `XingYunStar/NapCatQQ`.
+- Prioritize `NapCat.Shell.Windows.Node.zip` ahead of other Windows archives (such as `OneKey.zip`) when selecting the automatic deployment package.
+- Fix release publishing script artifact discovery to locate `target.json` regardless of whether `actions/download-artifact` extracts into a subdirectory or the download root.
+
+### Tests
+- Add regression test verifying the `XingYunStar/NapCatQQ` release source URLs and `NapCat.Shell.Windows.Node.zip` asset selection priority.
+
 ## [1.2.3] - 2026-11-27
 
 ### Fixed

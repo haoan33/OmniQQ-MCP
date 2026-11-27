@@ -8,9 +8,31 @@ if(!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version||''))throw new Err
 const tag=`v${version}`,repo=config.releaseRepository;
 const sourceCommit=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
 function gh(args){return execFileSync('gh',args,{encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();}
-const targets=config.targets.map(target=>{
-  const folder=path.resolve('release-downloads',`${target.platform}-${target.arch}`);
+function findTargetDirs(rootDir){
+  const found=[];
+  if(!fs.existsSync(rootDir))return found;
+  const stack=[rootDir];
+  while(stack.length){
+    const current=stack.pop();
+    const meta=path.join(current,'target.json');
+    if(fs.existsSync(meta)&&fs.statSync(meta).isFile())found.push(current);
+    for(const entry of fs.readdirSync(current,{withFileTypes:true})){
+      if(entry.isDirectory())stack.push(path.join(current,entry.name));
+    }
+  }
+  return found;
+}
+const downloadRoot=path.resolve('release-downloads');
+const discovered=findTargetDirs(downloadRoot).map(folder=>{
   const metadata=JSON.parse(fs.readFileSync(path.join(folder,'target.json'),'utf8'));
+  return {folder,metadata};
+});
+const targets=config.targets.map(target=>{
+  const expectedFolder=path.resolve(downloadRoot,`${target.platform}-${target.arch}`);
+  const match=discovered.find(item=>item.folder===expectedFolder)
+    ||discovered.find(item=>item.metadata?.asset?.platform===target.platform&&item.metadata?.asset?.arch===target.arch);
+  if(!match)throw new Error(`未在 release-downloads 中找到 ${target.platform}/${target.arch} 的 target.json`);
+  const {folder,metadata}=match;
   const asset=metadata.asset;
   if(metadata.version!==version||metadata.sourceCommit!==sourceCommit||asset.platform!==target.platform||asset.arch!==target.arch||path.basename(asset.name)!==asset.name)throw new Error('构建元数据与当前版本不一致');
   const file=path.join(folder,asset.name),body=fs.readFileSync(file);
